@@ -1,5 +1,7 @@
 .vscode/**
+.claude/**
 src/**
+sample-files/**
 openspec/**
 .gitignore
 esbuild.js
@@ -7,3 +9,4 @@ tsconfig.json
 **/*.map
 **/.eslintrc*
 node_modules/**
+*.vsix

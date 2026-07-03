@@ -37,6 +37,28 @@ code --extensionDevelopmentPath=. .
 
 If you do need to script opening a specific file for a one-off check, launch with the folder first, wait for the window to finish loading, and only then open the file — or just use F5, which sidesteps the issue entirely since it never opens a file via CLI argument.
 
+## Packaging as a .vsix
+
+This extension isn't published to the VS Code Marketplace (`publisher: "local-dev"`, `private: true`), so it can't be installed by searching in the Extensions view. Instead, package it as a `.vsix` file and install that directly.
+
+### Package
+
+```bash
+npm install
+npm run package:vsix
+```
+
+This runs the production build (type-check + minified esbuild bundle) and produces `dicom-tag-viewer-<version>.vsix` in the repo root, containing only `package.json`, `readme.md`, and the compiled `dist/` output (no source, no `node_modules`, no dev tooling — see `.vscodeignore`).
+
+### Deploy to a new computer
+
+1. Copy the generated `.vsix` file to the target machine (USB, network share, cloud drive, etc.).
+2. Install it:
+   - CLI: `code --install-extension path\to\dicom-tag-viewer-0.0.1.vsix`
+   - Or in VS Code: Extensions view → `...` menu → **Install from VSIX...** → select the file.
+
+After installing, `.dcm` files open in the DICOM Tag Viewer automatically — no dev mode or F5 required. To pick up a new version, repackage and reinstall the `.vsix` (VS Code will overwrite the existing install).
+
 ## Sample files
 
 `sample-files/generate-samples.js` generates small synthetic `.dcm` fixtures used for manual verification:
