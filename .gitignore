@@ -1,0 +1,15 @@
+out/
+dist/
+node_modules/
+*.vsix
+
+.vscode-test/
+.vscode-test-web/
+
+*.log
+npm-debug.log*
+
+.DS_Store
+Thumbs.db
+
+*.tsbuildinfo

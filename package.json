@@ -1,0 +1,46 @@
+{
+  "name": "dicom-tag-viewer",
+  "displayName": "DICOM Tag Viewer",
+  "description": "Explore DICOM tag details in an easy-to-navigate tree.",
+  "version": "0.0.1",
+  "publisher": "local-dev",
+  "private": true,
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "activationEvents": [],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "dicomDump.viewer",
+        "displayName": "DICOM Viewer",
+        "selector": [
+          {
+            "filenamePattern": "*.dcm"
+          }
+        ],
+        "priority": "default"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./ --noEmit && node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "package": "node esbuild.js --production"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "dicom-data-dictionary": "^0.3.1",
+    "dicom-parser": "^1.8.21"
+  }
+}

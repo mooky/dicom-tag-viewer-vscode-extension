@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm view *)",
+      "Read(//tmp/**)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const d = require\\('dicom-data-dictionary'\\); console.log\\(Object.keys\\(d\\)\\); const keys = Object.keys\\(d.dictionary||{}\\); console.log\\('count', keys.length\\); console.log\\(d.dictionary['00100010']\\);\")",
+      "Bash(node -e \"console.log\\(require.resolve\\('esbuild/lib/main.js'\\)\\)\")",
+      "Bash(node_modules/.bin/esbuild --version)"
+    ]
+  }
+}

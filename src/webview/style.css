@@ -1,0 +1,188 @@
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--vscode-editor-foreground);
+  background-color: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size, 13px);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+#toolbar {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  flex: 0 0 auto;
+}
+
+#search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
+  background-color: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+}
+
+#search:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+}
+
+#main {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+#main.hidden {
+  display: none;
+}
+
+#tree {
+  flex: 1 1 60%;
+  min-width: 0;
+  border-right: 1px solid var(--vscode-panel-border);
+  overflow: hidden;
+}
+
+.tree-scroller {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.tree-spacer {
+  position: relative;
+}
+
+.tree-visible {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+  cursor: pointer;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
+
+.tree-row:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
+.tree-row.selected {
+  background-color: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.caret,
+.caret-spacer {
+  display: inline-block;
+  width: 14px;
+  flex: 0 0 auto;
+  text-align: center;
+  user-select: none;
+}
+
+.row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#detail {
+  flex: 1 1 40%;
+  min-width: 0;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.detail-empty {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.detail-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+
+.detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.detail-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.detail-value {
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.detail-field button {
+  align-self: flex-start;
+  margin-top: 4px;
+  background-color: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+  border: none;
+  padding: 3px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.detail-field button:hover {
+  background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+}
+
+#detail > button {
+  background-color: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: none;
+  padding: 4px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+#detail > button:hover {
+  background-color: var(--vscode-button-hoverBackground);
+}
+
+.hex-view {
+  margin-top: 8px;
+  padding: 8px;
+  background-color: var(--vscode-textCodeBlock-background);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+#error {
+  padding: 16px;
+  color: var(--vscode-errorForeground);
+}
+
+.hidden {
+  display: none;
+}

@@ -1,0 +1,52 @@
+# DICOM Tag Viewer
+
+A VS Code extension that opens `.dcm` files in a read-only custom editor showing an explorable, searchable tag tree — including nested sequences, VR-aware formatted values, and on-demand hex inspection for binary elements (e.g. pixel data).
+
+## Development
+
+```
+npm install
+npm run compile
+```
+
+### Running the extension (recommended: F5)
+
+Open this folder in VS Code and press **F5** (or use the "Run Extension" launch configuration). This launches a fresh Extension Development Host window with the extension loaded, and does not pass any file to open — you pick a file yourself once the window is up. Then either:
+
+- Double-click a `.dcm` file in the Explorer sidebar (e.g. `sample-files/valid-sample.dcm`), or
+- Drag a `.dcm` file from Windows File Explorer and drop it onto the editor area.
+
+`npm run watch` (or the `watch` script) rebuilds on save; reload the Extension Development Host window (`Ctrl+R` / `Cmd+R`) to pick up changes.
+
+### Testing via the CLI instead of F5
+
+If you launch the Extension Development Host from the command line rather than F5, be aware of a startup race:
+
+```bash
+# Avoid: passing a file path together with --extensionDevelopmentPath
+code --extensionDevelopmentPath=. path/to/file.dcm
+```
+
+Passing a file path as a CLI argument can open that file *before* the development extension's contribution points (including `contributes.customEditors`) finish registering with the editor resolver. When that race is lost, VS Code falls back to its built-in binary-file viewer for that tab instead of routing to the DICOM Tag Viewer — and it does not retry once the extension is ready. This looks like the extension is broken when it isn't.
+
+To test via the CLI without hitting the race, open the **folder** only, then open the `.dcm` file from inside the running window (double-click or drag-and-drop), the same as the F5 workflow:
+
+```bash
+code --extensionDevelopmentPath=. .
+```
+
+If you do need to script opening a specific file for a one-off check, launch with the folder first, wait for the window to finish loading, and only then open the file — or just use F5, which sidesteps the issue entirely since it never opens a file via CLI argument.
+
+## Sample files
+
+`sample-files/generate-samples.js` generates small synthetic `.dcm` fixtures used for manual verification:
+
+- `valid-sample.dcm` — nested sequences, a private tag, and modest pixel data
+- `large-pixeldata.dcm` — 8 MB pixel data, for checking that opening large files stays responsive
+- `not-dicom.dcm` — not a DICOM file, for checking graceful error handling
+
+Regenerate with:
+
+```bash
+node sample-files/generate-samples.js
+```
