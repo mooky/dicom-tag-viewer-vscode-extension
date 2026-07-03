@@ -61,8 +61,9 @@ function fileMetaGroup(sopClassUid, sopInstanceUid, transferSyntaxUid) {
   return Buffer.concat([groupLength, body]);
 }
 
-function buildDataset({ pixelDataLength }) {
+function buildDataset({ pixelDataLength, sopInstanceUid }) {
   const parts = [];
+  parts.push(element(0x0008, 0x0018, 'UI', strValue(sopInstanceUid, 0x00)));
   parts.push(element(0x0008, 0x0060, 'CS', strValue('CT')));
   parts.push(element(0x0008, 0x0020, 'DA', strValue('20240115')));
   parts.push(element(0x0008, 0x0030, 'TM', strValue('153045')));
@@ -100,18 +101,25 @@ function buildDataset({ pixelDataLength }) {
   return Buffer.concat(parts);
 }
 
-function buildFile({ pixelDataLength }) {
+function buildFile({ pixelDataLength, sopInstanceUid }) {
   const preamble = Buffer.alloc(128, 0);
   const magic = Buffer.from('DICM', 'ascii');
-  const meta = fileMetaGroup('1.2.840.10008.5.1.4.1.1.2', '1.2.3.4.5.6.7.8.9', '1.2.840.10008.1.2.1');
-  const dataset = buildDataset({ pixelDataLength });
+  // Media Storage SOP Instance UID (0002,0003) SHALL match the dataset's SOP Instance UID (0008,0018).
+  const meta = fileMetaGroup('1.2.840.10008.5.1.4.1.1.2', sopInstanceUid, '1.2.840.10008.1.2.1');
+  const dataset = buildDataset({ pixelDataLength, sopInstanceUid });
   return Buffer.concat([preamble, magic, meta, dataset]);
 }
 
 const outDir = __dirname;
 
-fs.writeFileSync(path.join(outDir, 'valid-sample.dcm'), buildFile({ pixelDataLength: 2048 }));
-fs.writeFileSync(path.join(outDir, 'large-pixeldata.dcm'), buildFile({ pixelDataLength: 8 * 1024 * 1024 }));
+fs.writeFileSync(
+  path.join(outDir, 'valid-sample.dcm'),
+  buildFile({ pixelDataLength: 2048, sopInstanceUid: '1.2.3.4.5.6.7.8.9.1' }),
+);
+fs.writeFileSync(
+  path.join(outDir, 'large-pixeldata.dcm'),
+  buildFile({ pixelDataLength: 8 * 1024 * 1024, sopInstanceUid: '1.2.3.4.5.6.7.8.9.2' }),
+);
 fs.writeFileSync(path.join(outDir, 'not-dicom.dcm'), Buffer.from('this is not a dicom file, just plain text bytes\n'.repeat(20)));
 
 console.log('Generated sample-files/valid-sample.dcm, large-pixeldata.dcm, not-dicom.dcm');

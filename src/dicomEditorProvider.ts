@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { DicomDocument } from './dicomDocument';
-import { ExtToWebviewMessage, WebviewToExtMessage } from './common/protocol';
+import { ExtToWebviewMessage, NoteData, WebviewToExtMessage } from './common/protocol';
+import { FileIdentity, NotesStore, computeContentHash, resolveIdentity } from './notesStore';
 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -11,10 +12,21 @@ function getNonce(): string {
   return text;
 }
 
+interface RuntimeNotes {
+  identity: FileIdentity;
+  contentHash: string;
+  notes: Record<string, NoteData>;
+  palette: string[];
+}
+
 export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<DicomDocument> {
   public static readonly viewType = 'dicomDump.viewer';
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  private readonly notesStore: NotesStore;
+
+  constructor(private readonly context: vscode.ExtensionContext) {
+    this.notesStore = new NotesStore(context);
+  }
 
   async openCustomDocument(uri: vscode.Uri): Promise<DicomDocument> {
     return DicomDocument.open(uri);
@@ -27,10 +39,12 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     };
     panel.webview.html = this.getHtml(panel.webview);
 
+    let runtimeNotes: RuntimeNotes | undefined;
+
     panel.webview.onDidReceiveMessage(async (message: WebviewToExtMessage) => {
       switch (message.type) {
         case 'ready':
-          this.sendInitialState(document, panel.webview);
+          runtimeNotes = await this.sendInitialState(document, panel.webview);
           break;
         case 'requestHex': {
           const bytes = document.readBytes(message.offset, message.length);
@@ -48,18 +62,65 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
         case 'copy':
           await vscode.env.clipboard.writeText(message.text);
           break;
+        case 'setNote': {
+          if (!runtimeNotes) {
+            break;
+          }
+          runtimeNotes.notes[message.noteKey] = { color: message.color, text: message.text };
+          if (!runtimeNotes.palette.includes(message.color)) {
+            runtimeNotes.palette.push(message.color);
+          }
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
+        case 'clearNote': {
+          if (!runtimeNotes) {
+            break;
+          }
+          delete runtimeNotes.notes[message.noteKey];
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
+        case 'addPaletteColor': {
+          if (!runtimeNotes || runtimeNotes.palette.includes(message.color)) {
+            break;
+          }
+          runtimeNotes.palette.push(message.color);
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
       }
     });
   }
 
-  private sendInitialState(document: DicomDocument, webview: vscode.Webview): void {
+  private async persistAndNotify(webview: vscode.Webview, runtime: RuntimeNotes): Promise<void> {
+    await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.palette);
+    const message: ExtToWebviewMessage = {
+      type: 'notesUpdate',
+      notes: { notes: runtime.notes, palette: runtime.palette, contentDrift: false },
+    };
+    webview.postMessage(message);
+  }
+
+  private async sendInitialState(document: DicomDocument, webview: vscode.Webview): Promise<RuntimeNotes | undefined> {
     if (document.error) {
       const message: ExtToWebviewMessage = { type: 'parseError', message: document.error };
       webview.postMessage(message);
-      return;
+      return undefined;
     }
-    const message: ExtToWebviewMessage = { type: 'model', elements: document.elements ?? [] };
+
+    const contentHash = computeContentHash(document.bytes);
+    const identity = resolveIdentity(document.sopInstanceUid, contentHash);
+    const loaded = await this.notesStore.load(identity, contentHash);
+
+    const message: ExtToWebviewMessage = {
+      type: 'model',
+      elements: document.elements ?? [],
+      notes: { notes: loaded.notes, palette: loaded.palette, contentDrift: loaded.contentDrift },
+    };
     webview.postMessage(message);
+
+    return { identity, contentHash, notes: loaded.notes, palette: loaded.palette };
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -79,10 +140,13 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   <div id="app">
     <div id="toolbar">
       <input id="search" type="text" placeholder="Search tag, name, or value..." />
+      <button id="notesToggle" type="button">Notes</button>
     </div>
+    <div id="driftBanner" class="hidden"></div>
     <div id="main">
       <div id="tree" tabindex="0"></div>
       <div id="detail"></div>
+      <div id="notesList" class="hidden"></div>
     </div>
     <div id="error" class="hidden"></div>
   </div>

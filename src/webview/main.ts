@@ -1,6 +1,8 @@
-import { ExtToWebviewMessage, TreeNode, WebviewToExtMessage } from '../common/protocol';
+import { ExtToWebviewMessage, NoteData, TreeNode, WebviewToExtMessage } from '../common/protocol';
 
 const ROW_HEIGHT = 22;
+const GUTTER_TICK_LIMIT = 3;
+const FALLBACK_COLOR = '#e06c75';
 
 const vscode = acquireVsCodeApi();
 
@@ -10,6 +12,13 @@ const expanded = new Set<string>();
 let selectedPath: string | null = null;
 let searchQuery = '';
 const hexCache = new Map<string, string>();
+
+let notes: Record<string, NoteData> = {};
+let palette: string[] = [];
+let contentDrift = false;
+let notesListVisible = false;
+let descendantColorsByNoteKey = new Map<string, string[]>();
+let noteKeyToNode = new Map<string, TreeNode>();
 
 interface Row {
   node: TreeNode;
@@ -100,6 +109,48 @@ function findNodeByPath(nodes: TreeNode[], path: string): TreeNode | undefined {
   return node;
 }
 
+function locatePathByNoteKey(nodes: TreeNode[], targetKey: string, parentPath: string, ancestorAcc: string[]): string | undefined {
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    const path = parentPath ? `${parentPath}.${i}` : `${i}`;
+    if (node.noteKey === targetKey) {
+      return path;
+    }
+    if (node.items) {
+      const found = locatePathByNoteKey(node.items, targetKey, path, ancestorAcc);
+      if (found !== undefined) {
+        ancestorAcc.push(path);
+        return found;
+      }
+    }
+  }
+  return undefined;
+}
+
+function computeSubtreeColors(nodes: TreeNode[]): Set<string> {
+  const union = new Set<string>();
+  nodes.forEach((node) => {
+    noteKeyToNode.set(node.noteKey, node);
+    const childColors = node.items ? computeSubtreeColors(node.items) : new Set<string>();
+    descendantColorsByNoteKey.set(node.noteKey, Array.from(childColors));
+    const ownColor = notes[node.noteKey]?.color;
+    const subtree = new Set(childColors);
+    if (ownColor) {
+      subtree.add(ownColor);
+    }
+    subtree.forEach((c) => union.add(c));
+  });
+  return union;
+}
+
+function recomputeNoteIndexes(): void {
+  descendantColorsByNoteKey = new Map();
+  noteKeyToNode = new Map();
+  if (elements) {
+    computeSubtreeColors(elements);
+  }
+}
+
 function recomputeRowsAndRender(): void {
   rows = [];
   if (elements) {
@@ -115,10 +166,50 @@ function recomputeRowsAndRender(): void {
   renderTree();
 }
 
+function renderGutter(row: Row): HTMLElement {
+  const gutter = document.createElement('span');
+  gutter.className = 'gutter';
+
+  const note = notes[row.node.noteKey];
+  if (note) {
+    const mark = document.createElement('span');
+    mark.className = 'gutter-mark';
+    mark.style.backgroundColor = note.color;
+    mark.title = note.text;
+    gutter.appendChild(mark);
+  }
+
+  if (row.hasChildren && !expanded.has(row.path)) {
+    const colors = descendantColorsByNoteKey.get(row.node.noteKey) ?? [];
+    if (colors.length > 0) {
+      colors.slice(0, GUTTER_TICK_LIMIT).forEach((color) => {
+        const tick = document.createElement('span');
+        tick.className = 'gutter-tick';
+        tick.style.backgroundColor = color;
+        gutter.appendChild(tick);
+      });
+      if (colors.length > GUTTER_TICK_LIMIT) {
+        const overflow = document.createElement('span');
+        overflow.className = 'gutter-overflow';
+        overflow.textContent = `+${colors.length - GUTTER_TICK_LIMIT}`;
+        gutter.appendChild(overflow);
+      }
+    }
+  }
+
+  return gutter;
+}
+
 function renderRow(row: Row): HTMLElement {
   const div = document.createElement('div');
   div.className = 'tree-row' + (row.path === selectedPath ? ' selected' : '');
-  div.style.paddingLeft = `${row.depth * 16 + 4}px`;
+
+  div.appendChild(renderGutter(row));
+
+  const indent = document.createElement('span');
+  indent.className = 'indent';
+  indent.style.width = `${row.depth * 16 + 4}px`;
+  div.appendChild(indent);
 
   if (row.hasChildren) {
     const caret = document.createElement('span');
@@ -194,6 +285,78 @@ function makeButton(label: string, onClick: () => void): HTMLButtonElement {
   button.textContent = label;
   button.addEventListener('click', onClick);
   return button;
+}
+
+function renderNoteEditor(node: TreeNode, detail: HTMLElement): void {
+  const existing = notes[node.noteKey];
+
+  const section = document.createElement('div');
+  section.className = 'note-section';
+
+  const title = document.createElement('div');
+  title.className = 'detail-label';
+  title.textContent = 'Note';
+  section.appendChild(title);
+
+  const swatchRow = document.createElement('div');
+  swatchRow.className = 'note-swatches';
+  let selectedColor = existing?.color ?? palette[0] ?? FALLBACK_COLOR;
+
+  const renderSwatches = (): void => {
+    swatchRow.innerHTML = '';
+    palette.forEach((color) => {
+      const swatch = document.createElement('button');
+      swatch.type = 'button';
+      swatch.className = 'note-swatch' + (color === selectedColor ? ' selected' : '');
+      swatch.style.backgroundColor = color;
+      swatch.title = color;
+      swatch.addEventListener('click', () => {
+        selectedColor = color;
+        renderSwatches();
+      });
+      swatchRow.appendChild(swatch);
+    });
+
+    const customInput = document.createElement('input');
+    customInput.type = 'color';
+    customInput.className = 'note-custom-color';
+    customInput.title = 'Add a custom color';
+    customInput.value = selectedColor;
+    customInput.addEventListener('change', () => {
+      selectedColor = customInput.value;
+      if (!palette.includes(selectedColor)) {
+        postMessage({ type: 'addPaletteColor', color: selectedColor });
+      }
+      renderSwatches();
+    });
+    swatchRow.appendChild(customInput);
+  };
+  renderSwatches();
+  section.appendChild(swatchRow);
+
+  const textarea = document.createElement('textarea');
+  textarea.className = 'note-text';
+  textarea.placeholder = 'Add a note for this tag…';
+  textarea.value = existing?.text ?? '';
+  section.appendChild(textarea);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'note-buttons';
+  buttons.appendChild(
+    makeButton('Save Note', () => {
+      postMessage({ type: 'setNote', noteKey: node.noteKey, color: selectedColor, text: textarea.value });
+    }),
+  );
+  if (existing) {
+    buttons.appendChild(
+      makeButton('Delete Note', () => {
+        postMessage({ type: 'clearNote', noteKey: node.noteKey });
+      }),
+    );
+  }
+  section.appendChild(buttons);
+
+  detail.appendChild(section);
 }
 
 function formatHexDump(bytes: Uint8Array, baseOffset: number): string {
@@ -272,6 +435,81 @@ function renderDetail(): void {
       );
     }
   }
+
+  renderNoteEditor(node, detail);
+}
+
+function renderDriftBanner(): void {
+  const banner = document.getElementById('driftBanner')!;
+  if (contentDrift) {
+    banner.classList.remove('hidden');
+    banner.textContent = "This file's content differs from when its notes were saved.";
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
+function renderNotesList(): void {
+  const container = document.getElementById('notesList')!;
+  container.innerHTML = '';
+
+  const noteKeys = Object.keys(notes);
+  if (noteKeys.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'notes-list-empty';
+    empty.textContent = 'No notes yet.';
+    container.appendChild(empty);
+    return;
+  }
+
+  noteKeys.forEach((noteKey) => {
+    const note = notes[noteKey];
+    const node = noteKeyToNode.get(noteKey);
+
+    const item = document.createElement('div');
+    item.className = 'notes-list-item';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'notes-list-swatch';
+    swatch.style.backgroundColor = note.color;
+    item.appendChild(swatch);
+
+    const label = document.createElement('span');
+    label.className = 'notes-list-label';
+    const tagLabel = node ? `${node.tag} ${node.name}` : noteKey;
+    const excerpt = note.text.split('\n')[0]?.trim();
+    label.textContent = excerpt ? `${tagLabel} — ${truncate(excerpt, 60)}` : tagLabel;
+    item.appendChild(label);
+
+    item.addEventListener('click', () => jumpToNote(noteKey));
+    container.appendChild(item);
+  });
+}
+
+function jumpToNote(noteKey: string): void {
+  if (!elements) {
+    return;
+  }
+  const ancestors: string[] = [];
+  const targetPath = locatePathByNoteKey(elements, noteKey, '', ancestors);
+  if (targetPath === undefined) {
+    return;
+  }
+
+  ancestors.forEach((path) => expanded.add(path));
+  if (searchQuery.trim().length > 0) {
+    searchQuery = '';
+    (document.getElementById('search') as HTMLInputElement).value = '';
+  }
+  selectedPath = targetPath;
+  recomputeRowsAndRender();
+  renderDetail();
+
+  const index = rows.findIndex((row) => row.path === targetPath);
+  if (index >= 0) {
+    scrollerEl.scrollTop = Math.max(0, index * ROW_HEIGHT - scrollerEl.clientHeight / 2);
+    renderVisibleSlice();
+  }
 }
 
 function renderApp(): void {
@@ -314,18 +552,43 @@ function wireSearchInput(): void {
   });
 }
 
+function wireNotesToggle(): void {
+  const button = document.getElementById('notesToggle') as HTMLButtonElement;
+  const panel = document.getElementById('notesList')!;
+  button.addEventListener('click', () => {
+    notesListVisible = !notesListVisible;
+    panel.classList.toggle('hidden', !notesListVisible);
+  });
+}
+
 window.addEventListener('message', (event: MessageEvent<ExtToWebviewMessage>) => {
   const message = event.data;
   switch (message.type) {
     case 'model':
       elements = message.elements;
       parseError = null;
+      notes = message.notes.notes;
+      palette = message.notes.palette;
+      contentDrift = message.notes.contentDrift;
+      recomputeNoteIndexes();
       renderApp();
+      renderDriftBanner();
+      renderNotesList();
       break;
     case 'parseError':
       parseError = message.message;
       elements = null;
       renderApp();
+      break;
+    case 'notesUpdate':
+      notes = message.notes.notes;
+      palette = message.notes.palette;
+      contentDrift = message.notes.contentDrift;
+      recomputeNoteIndexes();
+      renderTree();
+      renderDetail();
+      renderDriftBanner();
+      renderNotesList();
       break;
     case 'hexChunk': {
       const bytes = base64ToBytes(message.bytes);
@@ -339,6 +602,8 @@ window.addEventListener('message', (event: MessageEvent<ExtToWebviewMessage>) =>
 window.addEventListener('DOMContentLoaded', () => {
   initTree();
   wireSearchInput();
+  wireNotesToggle();
   renderDetail();
+  renderNotesList();
   postMessage({ type: 'ready' });
 });

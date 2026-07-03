@@ -5,15 +5,16 @@ import { parseDicomFile } from './parsing/parseDicom';
 export class DicomDocument implements vscode.CustomDocument {
   private constructor(
     public readonly uri: vscode.Uri,
-    private readonly bytes: Uint8Array,
+    public readonly bytes: Uint8Array,
     public readonly elements: TreeNode[] | undefined,
     public readonly error: string | undefined,
+    public readonly sopInstanceUid: string | undefined,
   ) {}
 
   static async open(uri: vscode.Uri): Promise<DicomDocument> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     const result = parseDicomFile(bytes);
-    return new DicomDocument(uri, bytes, result.elements, result.error);
+    return new DicomDocument(uri, bytes, result.elements, result.error, result.sopInstanceUid);
   }
 
   readBytes(offset: number, length: number): Uint8Array | undefined {
