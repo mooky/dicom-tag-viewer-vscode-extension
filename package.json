@@ -33,7 +33,7 @@
     "watch": "node esbuild.js --watch",
     "package": "node esbuild.js --production",
     "vscode:prepublish": "npm run package",
-    "package:vsix": "vsce package"
+    "package:vsix": "vsce package --allow-missing-repository --skip-license"
   },
   "devDependencies": {
     "@types/node": "^26.1.0",

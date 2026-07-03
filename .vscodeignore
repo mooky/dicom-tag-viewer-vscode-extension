@@ -5,6 +5,7 @@ src/**
 sample-files/**
 openspec/**
 .gitignore
+build.cmd
 esbuild.js
 tsconfig.json
 **/*.map
