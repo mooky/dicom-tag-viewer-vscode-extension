@@ -9,6 +9,24 @@ npm install
 npm run compile
 ```
 
+### Opening in a dev container (recommended for a consistent toolchain)
+
+This repo includes a [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) so you can build, compile, and package the extension without installing Node/npm on the host machine.
+
+Prerequisites:
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another devcontainer-compatible container engine) running locally
+- The [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) VS Code extension (listed in `.vscode/extensions.json`, so VS Code will prompt to install it automatically)
+
+To use it:
+
+1. Open this folder in VS Code.
+2. When prompted "Reopen in Container", click it — or run **Dev Containers: Reopen in Container** from the Command Palette (`Ctrl+Shift+P`).
+3. VS Code builds/pulls the container image (`mcr.microsoft.com/devcontainers/javascript-node:24-bookworm`) and runs `npm install` automatically (`postCreateCommand`).
+4. Once the window has reloaded inside the container, everything below — `npm run compile`, `npm run watch`, **F5** to launch the Extension Development Host, and `npm run package:vsix` — works exactly the same as running on the host.
+
+The generated `.vsix` file appears in your workspace folder on the host (it's a bind mount), so it's usable outside the container the same way as a locally-built one.
+
 ### Running the extension (recommended: F5)
 
 Open this folder in VS Code and press **F5** (or use the "Run Extension" launch configuration). This launches a fresh Extension Development Host window with the extension loaded, and does not pass any file to open — you pick a file yourself once the window is up. Then either:
