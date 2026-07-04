@@ -18,7 +18,7 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Push to a `feature/**` branch and confirm the workflow triggers and succeeds
-- [ ] 4.2 Confirm the `.vsix` artifact is downloadable from the workflow run
-- [ ] 4.3 Confirm a push to `main` also triggers the workflow
-- [ ] 4.4 Confirm a deliberate type error causes the workflow to fail at the compile step (not silently pass through packaging)
+- [x] 4.1 Push to a `feature/**` branch and confirm the workflow triggers and succeeds
+- [x] 4.2 Confirm the `.vsix` artifact is downloadable from the workflow run
+- [x] 4.3 Confirm a push to `main` also triggers the workflow
+- [x] 4.4 Confirm a deliberate type error causes the workflow to fail at the compile step (not silently pass through packaging)
