@@ -413,6 +413,18 @@ function renderDetail(): void {
   tagRow.appendChild(makeButton('Copy Tag', () => postMessage({ type: 'copy', text: node.tag })));
   detail.appendChild(tagRow);
 
+  if (node.referenceUrl) {
+    const referenceRow = document.createElement('div');
+    referenceRow.className = 'detail-field';
+    const link = document.createElement('a');
+    link.href = node.referenceUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'View in DICOM Standard';
+    referenceRow.appendChild(link);
+    detail.appendChild(referenceRow);
+  }
+
   if (node.value !== undefined) {
     const valueRow = detailField('Value', node.value);
     valueRow.appendChild(makeButton('Copy Value', () => postMessage({ type: 'copy', text: node.value! })));

@@ -13,6 +13,8 @@ export interface TreeNode {
   items?: TreeNode[];
   /** Stable tag-id chain (e.g. "(0008,1140)>Item 1>(0008,1150)") used as the note key. */
   noteKey: string;
+  /** Link to this tag's DICOM standard reference page, when one could be resolved. */
+  referenceUrl?: string;
 }
 
 export interface NoteData {

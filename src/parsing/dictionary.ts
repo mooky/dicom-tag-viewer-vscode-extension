@@ -5,7 +5,7 @@ export interface DictionaryEntry {
   vr?: string;
 }
 
-function toDictKey(tag: string): string {
+export function toDictKey(tag: string): string {
   return tag.replace(/^x/i, '').toUpperCase();
 }
 
@@ -23,4 +23,9 @@ export function lookupTag(tag: string): DictionaryEntry {
   const group = parseInt(key.substring(0, 4), 16);
   const isPrivate = (group & 1) === 1;
   return { name: isPrivate ? 'Private Tag' : 'Unknown Tag' };
+}
+
+/** True only for tags in the standard public dictionary — excludes private and unrecognized tags. */
+export function isStandardTag(tag: string): boolean {
+  return standardDataElements[toDictKey(tag)] !== undefined;
 }
