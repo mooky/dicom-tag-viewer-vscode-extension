@@ -1,7 +1,10 @@
 {
   "name": "DICOM Tag Viewer (VS Code Extension)",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:24-bookworm",
-  "postCreateCommand": "npm install",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-node_modules,target=${containerWorkspaceFolder}/node_modules,type=volume"
+  ],
+  "postCreateCommand": "sudo chown node:node node_modules && npm install",
   "customizations": {
     "vscode": {
       "extensions": [
