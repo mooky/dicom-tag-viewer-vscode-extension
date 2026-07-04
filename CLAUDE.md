@@ -16,3 +16,14 @@ curl -s https://raw.githubusercontent.com/<owner>/<repo>/<tag>/action.yml | grep
 
 and pin to the lowest major version that already declares the current
 runtime (e.g. `node24`), rather than assuming the latest major is required.
+
+# Git / Commit Conventions
+
+Always create or switch to a feature branch before committing — don't commit
+directly to `main`.
+
+# Environment / Prerequisites
+
+Before starting a workflow that depends on external CLIs (`gh`, `node`,
+`openspec`), verify they're installed and on `PATH`. If something is missing,
+say so rather than letting the task fail partway through.
