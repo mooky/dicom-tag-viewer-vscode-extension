@@ -3,6 +3,7 @@
 .claude/**
 src/**
 sample-files/**
+scripts/**
 openspec/**
 .gitignore
 build.cmd

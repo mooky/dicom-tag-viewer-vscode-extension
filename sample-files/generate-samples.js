@@ -63,6 +63,7 @@ function fileMetaGroup(sopClassUid, sopInstanceUid, transferSyntaxUid) {
 
 function buildDataset({ pixelDataLength, sopInstanceUid }) {
   const parts = [];
+  parts.push(element(0x0008, 0x0016, 'UI', strValue('1.2.840.10008.5.1.4.1.1.2', 0x00))); // SOP Class UID: CT Image Storage
   parts.push(element(0x0008, 0x0018, 'UI', strValue(sopInstanceUid, 0x00)));
   parts.push(element(0x0008, 0x0060, 'CS', strValue('CT')));
   parts.push(element(0x0008, 0x0020, 'DA', strValue('20240115')));
