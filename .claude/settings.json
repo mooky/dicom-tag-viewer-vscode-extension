@@ -8,5 +8,20 @@
       "Bash(node -e \"console.log\\(require.resolve\\('esbuild/lib/main.js'\\)\\)\")",
       "Bash(node_modules/.bin/esbuild --version)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath // empty' | tr -d '\\r' | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx) npm run compile --silent ;; esac; } 2>/dev/null || true",
+            "statusMessage": "Compiling (tsc + esbuild)..."
+          }
+        ]
+      }
+    ]
   }
 }
