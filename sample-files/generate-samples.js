@@ -76,10 +76,14 @@ function buildDataset({ pixelDataLength, sopInstanceUid }) {
   parts.push(element(0x0009, 0x1001, 'SH', strValue('PRIV1')));
 
   // Sequence with two items, to exercise recursive nesting.
+  // item1 also nests a sequence of its own, to exercise a tag path two sequence levels deep.
+  const nestedCodeItem = item(Buffer.concat([element(0x0008, 0x0100, 'SH', strValue('CODE1'))]));
+  const nestedProtocolCodeSequence = element(0x0040, 0x0008, 'SQ', nestedCodeItem);
   const item1 = item(
     Buffer.concat([
       element(0x0040, 0x0007, 'LO', strValue('CHEST XRAY')),
       element(0x0040, 0x0009, 'SH', strValue('SPS1')),
+      nestedProtocolCodeSequence,
     ]),
   );
   const item2 = item(

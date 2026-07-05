@@ -213,6 +213,10 @@ function parentKeyOfNoteKey(noteKey: string): string {
   return idx === -1 ? '' : noteKey.slice(0, idx);
 }
 
+function formatTagPath(noteKey: string): string {
+  return noteKey.replace(/>Item (\d+)/g, '[$1]').replace(/>/g, '.');
+}
+
 /** Walks up from a highlight's parent scope to find the sequence (SQ node) whose terminal-ness gates it. */
 function nearestEnclosingSequenceNode(parentNoteKey: string): TreeNode | undefined {
   if (parentNoteKey === '') {
@@ -1084,6 +1088,11 @@ function renderDetail(): void {
   const tagRow = detailField('Tag', node.tag);
   tagRow.appendChild(makeButton('Copy Tag', () => postMessage({ type: 'copy', text: node.tag })));
   detail.appendChild(tagRow);
+
+  const tagPath = formatTagPath(node.noteKey);
+  const pathRow = detailField('Path', tagPath);
+  pathRow.appendChild(makeButton('Copy Path', () => postMessage({ type: 'copy', text: tagPath })));
+  detail.appendChild(pathRow);
 
   if (node.referenceUrl) {
     const referenceRow = document.createElement('div');
