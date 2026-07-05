@@ -27,3 +27,25 @@ directly to `main`.
 Before starting a workflow that depends on external CLIs (`gh`, `node`,
 `openspec`), verify they're installed and on `PATH`. If something is missing,
 say so rather than letting the task fail partway through.
+
+# Verifying Webview/UI Changes
+
+`npm run compile` (tsc + esbuild) only validates types and bundling — it
+gives zero signal about whether CSS/layout actually renders correctly (e.g.
+a flex item with `align-items: stretch` but no explicit height on either the
+container or the child silently collapses to 0px — no build error, just an
+invisible element). Don't report a change under `src/webview/**` or its
+`style.css` as complete on the strength of a passing build alone.
+
+Before declaring such a change done, launch the extension and look at the
+actual result:
+
+```
+code --extensionDevelopmentPath=. --new-window sample-files/valid-sample.dcm
+```
+
+(equivalent to the "Run Extension" launch config in `.vscode/launch.json`,
+i.e. what F5 does). If a screenshot/UI-inspection tool is available in the
+session, use it to check the rendered output directly. If not, say so
+explicitly and ask the user to confirm the visual result — don't let a
+green build silently stand in for a look at the real thing.
