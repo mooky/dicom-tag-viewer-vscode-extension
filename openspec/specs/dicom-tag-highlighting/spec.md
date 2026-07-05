@@ -1,11 +1,21 @@
-## ADDED Requirements
+# dicom-tag-highlighting Specification
+
+## Purpose
+
+TBD - created by archiving change add-tag-highlighting. Update Purpose after archive.
+
+## Requirements
 
 ### Requirement: Create a highlight over a sibling range
-The webview SHALL let a user select a contiguous range of sibling rows — via clicking a row to set an anchor, then shift-clicking another row among its siblings — and create a named, colored highlight spanning that range.
+The webview SHALL let a user select a contiguous range of sibling rows — via clicking a row to set an anchor, then shift-clicking another row among its siblings — and create a named, colored highlight spanning that range, with an optional free-text note.
 
 #### Scenario: Create a highlight over top-level tags
 - **WHEN** a user clicks one top-level tag, shift-clicks another top-level tag, and confirms a name and color
 - **THEN** a highlight is created spanning every sibling row between and including the two clicked rows
+
+#### Scenario: Create a highlight with a note
+- **WHEN** a user creates a highlight and enters text in its note field before confirming
+- **THEN** the highlight is created with that note attached, viewable as a tooltip on its header row
 
 #### Scenario: Create a highlight over sequence items
 - **WHEN** a user shift-click-selects a range of Items within the same sequence and confirms a name and color
@@ -27,11 +37,11 @@ The webview SHALL treat a sequence as non-terminal if it has an SQ-typed descend
 - **THEN** the highlight is created over exactly the selected subset, without expansion
 
 ### Requirement: Selection clamps to the nearest legal range
-The webview SHALL, when an in-progress shift-click selection would not form a legal highlight span, automatically clamp the selection rather than allow an invalid range or block the interaction. If the anchor and the shift-click target share no common parent, the selection SHALL clamp to the last sibling under the anchor's own parent that is closest to the target in document order.
+The webview SHALL, when an in-progress shift-click selection would not form a legal highlight span, automatically clamp the selection rather than allow an invalid range or block the interaction. If the anchor and the shift-click target share no common parent, the selection SHALL clamp to the anchor's own sibling range, stopping at whichever of the anchor's siblings the target is nested under (not merely the closest one in document order) — e.g. shift-clicking deep inside a later sequence stops the selection at that sequence, rather than extending to the last top-level sibling in the document. If the target's branch cannot be determined to nest under any of the anchor's own siblings, the selection clamps to the first or last sibling under the anchor's parent, whichever is closer to the target in document order.
 
 #### Scenario: Shift-click target has no common parent with the anchor
-- **WHEN** a user shift-clicks a row that shares no parent with the current anchor (e.g. nested several levels inside an unrelated sequence)
-- **THEN** the selection clamps to the anchor's own sibling range, extending as far as legally possible toward the target's position
+- **WHEN** a user shift-clicks a row that is nested several levels inside a different top-level sequence than the current anchor
+- **THEN** the selection clamps to the anchor's own sibling range, extending only as far as the sequence the target is nested under — not past it to the end of the document
 
 ### Requirement: Highlights may overlap without hierarchy
 The webview SHALL allow two highlights' spans to overlap arbitrarily — crossing, fully containing one another, or disjoint — without requiring one to contain or be disjoint from the other. Creating or editing a highlight SHALL NOT be blocked or altered by another highlight's existing span.
@@ -60,7 +70,7 @@ The webview SHALL let a user extend an existing highlight by adding the sibling 
 - **THEN** the extension automatically expands to include the full set of that sequence's children at that level, per the sequence rule
 
 ### Requirement: Rename or recolor an existing highlight
-The webview SHALL let a user reopen a highlight's name/color picker, pre-filled with its current values, by clicking its header row, and save changes to its name and color without affecting its span or membership.
+The webview SHALL let a user reopen a highlight's name/color/note editor, pre-filled with its current values, by clicking its header row, and save changes to its name, color, and note without affecting its span or membership.
 
 #### Scenario: Rename a highlight
 - **WHEN** a user clicks an existing highlight's header, changes its name, and saves
@@ -69,6 +79,10 @@ The webview SHALL let a user reopen a highlight's name/color picker, pre-filled 
 #### Scenario: Recolor a highlight
 - **WHEN** a user clicks an existing highlight's header, selects a different color, and saves
 - **THEN** the highlight's bars and header update to the new color and its span is unchanged
+
+#### Scenario: Edit a highlight's note
+- **WHEN** a user clicks an existing highlight's header, changes its note text, and saves
+- **THEN** the highlight's note updates and its name, color, and span are unchanged
 
 ### Requirement: Collapse a highlight independently of the tag tree
 Each highlight SHALL have its own collapsed/expanded state, independent of the underlying tag tree's own expand/collapse state. Collapsing a highlight SHALL hide all of its member rows and show a count of its members on its header row.

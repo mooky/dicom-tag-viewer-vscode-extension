@@ -55,7 +55,7 @@ The extension host SHALL record a whole-file content hash whenever notes are sav
 - **THEN** no drift indication is shown
 
 ### Requirement: Per-file color palette
-The webview SHALL offer a color palette for notes, pre-populated with 6 default colors, and SHALL let a user add custom colors beyond the defaults. The palette, including any custom colors added, SHALL be persisted as part of that file's own note data and SHALL NOT be shared with or applied to any other file.
+The webview SHALL offer a color palette for notes and highlights, pre-populated with 6 default colors, and SHALL let a user add custom colors beyond the defaults. The palette, including any custom colors added, SHALL be persisted as part of that file's own annotation data (shared by both notes and highlights) and SHALL NOT be shared with or applied to any other file.
 
 #### Scenario: Default palette available on a file with no prior notes
 - **WHEN** a user opens a file with no existing notes and begins adding a note
@@ -68,6 +68,10 @@ The webview SHALL offer a color palette for notes, pre-populated with 6 default 
 #### Scenario: Custom color does not appear in a different file
 - **WHEN** a user adds a custom color while annotating one file, then opens a different file
 - **THEN** the other file's palette shows only its own defaults and any custom colors previously added specifically to it
+
+#### Scenario: A custom color added via a highlight is available to notes
+- **WHEN** a user adds a custom color while creating or editing a highlight
+- **THEN** that color is also offered as a swatch choice when adding or editing a note in the same file, and vice versa
 
 ### Requirement: Tree gutter indicates a tag's own note
 The tree view SHALL display a fixed-position left gutter, aligned at the same horizontal position for every row regardless of nesting depth, and SHALL show a solid mark in the note's color for any row whose tag has a note.
