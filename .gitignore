@@ -13,3 +13,8 @@ npm-debug.log*
 Thumbs.db
 
 *.tsbuildinfo
+
+# Session-local lock file for the Claude Code harness's scheduled-task
+# machinery — regenerated per session (session id/pid/timestamp), not
+# meaningful project state.
+.claude/scheduled_tasks.lock
