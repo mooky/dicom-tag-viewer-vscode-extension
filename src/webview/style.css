@@ -37,7 +37,8 @@ body {
   outline: 1px solid var(--vscode-focusBorder);
 }
 
-#notesToggle {
+#notesToggle,
+#highlightsToggle {
   flex: 0 0 auto;
   background-color: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
   color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
@@ -47,7 +48,8 @@ body {
   cursor: pointer;
 }
 
-#notesToggle:hover {
+#notesToggle:hover,
+#highlightsToggle:hover {
   background-color: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
 }
 
@@ -103,6 +105,7 @@ body {
   cursor: pointer;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 12px;
+  user-select: none;
 }
 
 .tree-row:hover {
@@ -112,6 +115,19 @@ body {
 .tree-row.selected {
   background-color: var(--vscode-list-activeSelectionBackground);
   color: var(--vscode-list-activeSelectionForeground);
+}
+
+.tree-row.pending-selection {
+  outline: 1px dashed var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+.tree-row.highlight-wash {
+  background-color: color-mix(in srgb, var(--row-wash) 12%, transparent);
+}
+
+.tree-row.highlight-wash.selected {
+  background-color: var(--vscode-list-activeSelectionBackground);
 }
 
 .caret,
@@ -159,8 +175,96 @@ body {
   flex: 0 0 auto;
 }
 
+.highlight-gutter {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 22px;
+  flex: 0 0 auto;
+  padding: 3px 2px;
+  box-sizing: border-box;
+}
+
+.highlight-lane {
+  width: 4px;
+  height: 100%;
+  border-radius: 1px;
+  flex: 0 0 auto;
+}
+
 .indent {
   flex: 0 0 auto;
+}
+
+.tree-row-spacer {
+  height: 22px;
+  box-sizing: border-box;
+  border-top: 1px solid var(--vscode-panel-border);
+  margin-top: 3px;
+  opacity: 0.5;
+}
+
+.highlight-header-row {
+  font-weight: 600;
+}
+
+.highlight-header-row:hover .highlight-delete {
+  opacity: 1;
+}
+
+.highlight-chip {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+  margin-right: 6px;
+}
+
+.highlight-header-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+}
+
+.highlight-delete {
+  opacity: 0;
+  flex: 0 0 auto;
+  padding: 0 6px;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.highlight-delete:hover {
+  color: var(--vscode-errorForeground);
+}
+
+.highlight-name-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+  min-height: auto;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 160px;
+  background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  padding: 4px 0;
+}
+
+.context-menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.context-menu-item:hover {
+  background-color: var(--vscode-list-hoverBackground);
 }
 
 #detail {
@@ -316,7 +420,8 @@ body {
   background-color: var(--vscode-button-hoverBackground);
 }
 
-#notesList {
+#notesList,
+#highlightsList {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -328,6 +433,10 @@ body {
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 10;
+}
+
+#highlightsList {
+  top: 44px;
 }
 
 .notes-list-empty {

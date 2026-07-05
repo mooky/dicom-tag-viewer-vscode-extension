@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
+import { randomUUID } from 'crypto';
 import { DicomDocument } from './dicomDocument';
-import { ExtToWebviewMessage, NoteData, WebviewToExtMessage } from './common/protocol';
+import { ExtToWebviewMessage, HighlightData, NoteData, WebviewToExtMessage } from './common/protocol';
 import { FileIdentity, NotesStore, computeContentHash, resolveIdentity } from './notesStore';
 
 function getNonce(): string {
@@ -16,6 +17,7 @@ interface RuntimeNotes {
   identity: FileIdentity;
   contentHash: string;
   notes: Record<string, NoteData>;
+  highlights: HighlightData[];
   palette: string[];
 }
 
@@ -89,15 +91,75 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           await this.persistAndNotify(panel.webview, runtimeNotes);
           break;
         }
+        case 'createHighlight': {
+          if (!runtimeNotes) {
+            break;
+          }
+          runtimeNotes.highlights.push({
+            id: randomUUID(),
+            name: message.name,
+            note: message.note,
+            color: message.color,
+            parentNoteKey: message.parentNoteKey,
+            firstChildNoteKey: message.firstChildNoteKey,
+            lastChildNoteKey: message.lastChildNoteKey,
+            collapsed: false,
+          });
+          if (!runtimeNotes.palette.includes(message.color)) {
+            runtimeNotes.palette.push(message.color);
+          }
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
+        case 'updateHighlight': {
+          if (!runtimeNotes) {
+            break;
+          }
+          const highlight = runtimeNotes.highlights.find((h) => h.id === message.id);
+          if (!highlight) {
+            break;
+          }
+          if (message.name !== undefined) {
+            highlight.name = message.name;
+          }
+          if (message.note !== undefined) {
+            highlight.note = message.note;
+          }
+          if (message.color !== undefined) {
+            highlight.color = message.color;
+            if (!runtimeNotes.palette.includes(message.color)) {
+              runtimeNotes.palette.push(message.color);
+            }
+          }
+          if (message.firstChildNoteKey !== undefined) {
+            highlight.firstChildNoteKey = message.firstChildNoteKey;
+          }
+          if (message.lastChildNoteKey !== undefined) {
+            highlight.lastChildNoteKey = message.lastChildNoteKey;
+          }
+          if (message.collapsed !== undefined) {
+            highlight.collapsed = message.collapsed;
+          }
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
+        case 'deleteHighlight': {
+          if (!runtimeNotes) {
+            break;
+          }
+          runtimeNotes.highlights = runtimeNotes.highlights.filter((h) => h.id !== message.id);
+          await this.persistAndNotify(panel.webview, runtimeNotes);
+          break;
+        }
       }
     });
   }
 
   private async persistAndNotify(webview: vscode.Webview, runtime: RuntimeNotes): Promise<void> {
-    await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.palette);
+    await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.highlights, runtime.palette);
     const message: ExtToWebviewMessage = {
       type: 'notesUpdate',
-      notes: { notes: runtime.notes, palette: runtime.palette, contentDrift: false },
+      notes: { notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette, contentDrift: false },
     };
     webview.postMessage(message);
   }
@@ -116,11 +178,16 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     const message: ExtToWebviewMessage = {
       type: 'model',
       elements: document.elements ?? [],
-      notes: { notes: loaded.notes, palette: loaded.palette, contentDrift: loaded.contentDrift },
+      notes: {
+        notes: loaded.notes,
+        highlights: loaded.highlights,
+        palette: loaded.palette,
+        contentDrift: loaded.contentDrift,
+      },
     };
     webview.postMessage(message);
 
-    return { identity, contentHash, notes: loaded.notes, palette: loaded.palette };
+    return { identity, contentHash, notes: loaded.notes, highlights: loaded.highlights, palette: loaded.palette };
   }
 
   private getHtml(webview: vscode.Webview): string {
@@ -141,12 +208,14 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     <div id="toolbar">
       <input id="search" type="text" placeholder="Search tag, name, or value..." />
       <button id="notesToggle" type="button">Notes</button>
+      <button id="highlightsToggle" type="button">Highlights</button>
     </div>
     <div id="driftBanner" class="hidden"></div>
     <div id="main">
       <div id="tree" tabindex="0"></div>
       <div id="detail"></div>
       <div id="notesList" class="hidden"></div>
+      <div id="highlightsList" class="hidden"></div>
     </div>
     <div id="error" class="hidden"></div>
   </div>

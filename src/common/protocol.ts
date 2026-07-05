@@ -22,8 +22,29 @@ export interface NoteData {
   text: string;
 }
 
+/**
+ * A named, colored span over a contiguous range of sibling tags (or sequence
+ * items). `parentNoteKey` is `''` for a span of top-level elements; otherwise
+ * it is the noteKey of the sequence (spanning its Items) or of an Item
+ * (spanning its own child tags). `firstChildNoteKey`/`lastChildNoteKey` are
+ * the noteKeys of the boundary siblings, resolved to an index range at
+ * render time so the span survives re-parses (same drift model as notes).
+ */
+export interface HighlightData {
+  id: string;
+  name: string;
+  /** Optional free-text note describing the highlight, shown alongside its name. */
+  note: string;
+  color: string;
+  parentNoteKey: string;
+  firstChildNoteKey: string;
+  lastChildNoteKey: string;
+  collapsed: boolean;
+}
+
 export interface NotesState {
   notes: Record<string, NoteData>;
+  highlights: HighlightData[];
   palette: string[];
   contentDrift: boolean;
 }
@@ -40,4 +61,24 @@ export type WebviewToExtMessage =
   | { type: 'requestHex'; id: string; offset: number; length: number }
   | { type: 'setNote'; noteKey: string; color: string; text: string }
   | { type: 'clearNote'; noteKey: string }
-  | { type: 'addPaletteColor'; color: string };
+  | { type: 'addPaletteColor'; color: string }
+  | {
+      type: 'createHighlight';
+      parentNoteKey: string;
+      firstChildNoteKey: string;
+      lastChildNoteKey: string;
+      name: string;
+      note: string;
+      color: string;
+    }
+  | {
+      type: 'updateHighlight';
+      id: string;
+      name?: string;
+      note?: string;
+      color?: string;
+      firstChildNoteKey?: string;
+      lastChildNoteKey?: string;
+      collapsed?: boolean;
+    }
+  | { type: 'deleteHighlight'; id: string };

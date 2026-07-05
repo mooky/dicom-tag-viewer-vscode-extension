@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createHash } from 'crypto';
-import { NoteData } from './common/protocol';
+import { HighlightData, NoteData } from './common/protocol';
 
 export const DEFAULT_PALETTE: readonly string[] = [
   '#e06c75',
@@ -18,6 +18,7 @@ export interface FileIdentity {
 
 export interface LoadedNotes {
   notes: Record<string, NoteData>;
+  highlights: HighlightData[];
   palette: string[];
   contentDrift: boolean;
 }
@@ -28,6 +29,7 @@ interface StoredNotesFile {
   contentHash: string;
   palette: string[];
   notes: Record<string, NoteData>;
+  highlights?: HighlightData[];
 }
 
 export function computeContentHash(bytes: Uint8Array): string {
@@ -52,11 +54,12 @@ export class NotesStore {
       const stored = JSON.parse(Buffer.from(bytes).toString('utf8')) as StoredNotesFile;
       return {
         notes: stored.notes ?? {},
+        highlights: (stored.highlights ?? []).map((h) => ({ ...h, note: h.note ?? '' })),
         palette: stored.palette && stored.palette.length > 0 ? stored.palette : [...DEFAULT_PALETTE],
         contentDrift: stored.contentHash !== currentContentHash,
       };
     } catch {
-      return { notes: {}, palette: [...DEFAULT_PALETTE], contentDrift: false };
+      return { notes: {}, highlights: [], palette: [...DEFAULT_PALETTE], contentDrift: false };
     }
   }
 
@@ -64,6 +67,7 @@ export class NotesStore {
     identity: FileIdentity,
     currentContentHash: string,
     notes: Record<string, NoteData>,
+    highlights: HighlightData[],
     palette: string[],
   ): Promise<void> {
     const dir = vscode.Uri.joinPath(this.context.globalStorageUri, 'notes');
@@ -74,6 +78,7 @@ export class NotesStore {
       contentHash: currentContentHash,
       palette,
       notes,
+      highlights,
     };
     const bytes = Buffer.from(JSON.stringify(payload, null, 2), 'utf8');
     await vscode.workspace.fs.writeFile(this.fileUriFor(identity), bytes);
