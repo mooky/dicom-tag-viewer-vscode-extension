@@ -1,5 +1,4 @@
 .vscode/**
-.devcontainer/**
 .claude/**
 src/**
 sample-files/**

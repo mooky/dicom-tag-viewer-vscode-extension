@@ -9,24 +9,6 @@ npm install
 npm run compile
 ```
 
-### Opening in a dev container (recommended for a consistent toolchain)
-
-This repo includes a `.devcontainer/devcontainer.json` config so you can build, compile, and package the extension without installing Node/npm on the host machine.
-
-Prerequisites:
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another devcontainer-compatible container engine) running locally
-- The [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) VS Code extension (listed in `.vscode/extensions.json`, so VS Code will prompt to install it automatically)
-
-To use it:
-
-1. Open this folder in VS Code.
-2. When prompted "Reopen in Container", click it — or run **Dev Containers: Reopen in Container** from the Command Palette (`Ctrl+Shift+P`).
-3. VS Code builds/pulls the container image (`mcr.microsoft.com/devcontainers/javascript-node:24-bookworm`) and runs `npm install` automatically (`postCreateCommand`).
-4. Once the window has reloaded inside the container, everything below — `npm run compile`, `npm run watch`, **F5** to launch the Extension Development Host, and `npm run package:vsix` — works exactly the same as running on the host.
-
-The generated `.vsix` file appears in your workspace folder on the host (it's a bind mount), so it's usable outside the container the same way as a locally-built one.
-
 ### Running the extension (recommended: F5)
 
 Open this folder in VS Code and press **F5** (or use the "Run Extension" launch configuration). This launches a fresh Extension Development Host window with the extension loaded, and does not pass any file to open — you pick a file yourself once the window is up. Then either:
@@ -68,33 +50,15 @@ npm run package:vsix
 
 This runs the production build (type-check + minified esbuild bundle) and produces `dicom-tag-viewer-<version>.vsix` in the repo root, containing only `package.json`, `readme.md`, and the compiled `dist/` output (no source, no `node_modules`, no dev tooling — see `.vscodeignore`).
 
-### Package from a Windows `cmd.exe` prompt, using the dev container
+### Package from a Windows `cmd.exe` prompt
 
-You don't need to open VS Code to use the dev container — the [Dev Containers CLI](https://github.com/devcontainers/cli) drives it from any Windows shell (`cmd.exe`, PowerShell, etc.), which is useful if Node isn't installed on the host at all.
-
-Prerequisites:
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) running locally
-- The `devcontainer` CLI: `npm install -g @devcontainers/cli`
-
-From a `cmd.exe` prompt in the repo root, either run the included script:
+`build.cmd` runs the same packaging steps (`npm install`, `npm run package:vsix`) non-interactively, so it can be run from any Windows shell (`cmd.exe`, PowerShell, etc.) without opening VS Code:
 
 ```cmd
 build.cmd
 ```
 
-or run the same two steps directly:
-
-```cmd
-devcontainer up --workspace-folder .
-devcontainer exec --workspace-folder . npm run package:vsix
-```
-
-- `devcontainer up` builds (first run) or reuses (subsequent runs) the container from `.devcontainer/devcontainer.json`, and runs `npm install` inside it.
-- `devcontainer exec` runs `npm run package:vsix` inside that container.
-- The resulting `dicom-tag-viewer-<version>.vsix` appears in the repo root on the Windows host (the workspace folder is bind-mounted into the container).
-
-Note: if you instead use Git Bash to run these same commands, set `MSYS_NO_PATHCONV=1` first (e.g. `MSYS_NO_PATHCONV=1 devcontainer up --workspace-folder .`) — Git Bash otherwise rewrites the leading `/workspaces/...`-style container paths into Windows paths and breaks `docker exec`. This doesn't affect `cmd.exe` or PowerShell.
+The resulting `dicom-tag-viewer-<version>.vsix` appears in the repo root.
 
 ### Deploy to a new computer
 
