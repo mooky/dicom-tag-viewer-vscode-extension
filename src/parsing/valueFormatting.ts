@@ -118,6 +118,29 @@ function formatNumeric(vr: string, dataSet: DicomDataSet, tag: string, length: n
   return values.length > 0 ? values.join(', ') : undefined;
 }
 
+function formatBinaryHex(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+  const element = dataSet.elements[tag];
+  if (!element) {
+    return undefined;
+  }
+  const bytes = dataSet.byteArray.subarray(element.dataOffset, element.dataOffset + length);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+}
+
+function formatAttributeTags(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+  const values: string[] = [];
+  for (let i = 0; i < Math.floor(length / 4); i++) {
+    const group = dataSet.uint16(tag, i * 2);
+    const element = dataSet.uint16(tag, i * 2 + 1);
+    if (group === undefined || element === undefined) {
+      break;
+    }
+    const hex = (n: number) => n.toString(16).padStart(4, '0').toUpperCase();
+    values.push(`(${hex(group)},${hex(element)})`);
+  }
+  return values.length > 0 ? values.join(', ') : undefined;
+}
+
 export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, length: number): string | undefined {
   if (length === 0) {
     return '';
@@ -125,6 +148,14 @@ export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, leng
 
   if (vr in NUMERIC_VR_READERS) {
     return formatNumeric(vr, dataSet, tag, length);
+  }
+
+  if (isBinaryVR(vr)) {
+    return formatBinaryHex(dataSet, tag, length);
+  }
+
+  if (vr === 'AT') {
+    return formatAttributeTags(dataSet, tag, length);
   }
 
   const raw = dataSet.string(tag);
