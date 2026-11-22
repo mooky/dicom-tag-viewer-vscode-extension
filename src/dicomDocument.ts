@@ -9,19 +9,28 @@ export class DicomDocument implements vscode.CustomDocument {
     public readonly elements: TreeNode[] | undefined,
     public readonly error: string | undefined,
     public readonly sopInstanceUid: string | undefined,
+    /** Bytes that element offsets index into (the inflated stream for deflated files). */
+    private readonly parsedBytes: Uint8Array,
   ) {}
 
   static async open(uri: vscode.Uri): Promise<DicomDocument> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     const result = parseDicomFile(bytes);
-    return new DicomDocument(uri, bytes, result.elements, result.error, result.sopInstanceUid);
+    return new DicomDocument(
+      uri,
+      bytes,
+      result.elements,
+      result.error,
+      result.sopInstanceUid,
+      result.byteArray ?? bytes,
+    );
   }
 
   readBytes(offset: number, length: number): Uint8Array | undefined {
-    if (offset < 0 || length < 0 || offset + length > this.bytes.length) {
+    if (offset < 0 || length < 0 || offset + length > this.parsedBytes.length) {
       return undefined;
     }
-    return this.bytes.subarray(offset, offset + length);
+    return this.parsedBytes.subarray(offset, offset + length);
   }
 
   dispose(): void {

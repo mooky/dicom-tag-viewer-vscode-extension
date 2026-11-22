@@ -16,6 +16,8 @@ export interface ParseResult {
   error?: string;
   sopInstanceUid?: string;
   sopClassUid?: string;
+  /** The bytes element offsets refer to — differs from the file bytes for deflated transfer syntaxes. */
+  byteArray?: Uint8Array;
 }
 
 export function parseDicomFile(bytes: Uint8Array): ParseResult {
@@ -30,7 +32,12 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
     const binaryIdState = { counter: 0 };
     const sopClassUid = readTrimmedString(dataSet, SOP_CLASS_UID_TAG);
     const elements = buildNodes(dataSet, binaryIdState, '', [], sopClassUid);
-    return { elements, sopInstanceUid: readTrimmedString(dataSet, SOP_INSTANCE_UID_TAG), sopClassUid };
+    return {
+      elements,
+      sopInstanceUid: readTrimmedString(dataSet, SOP_INSTANCE_UID_TAG),
+      sopClassUid,
+      byteArray: dataSet.byteArray,
+    };
   } catch (err) {
     return { error: `Parsed DICOM meta information but failed to build the tag tree: ${errorMessage(err)}` };
   }
