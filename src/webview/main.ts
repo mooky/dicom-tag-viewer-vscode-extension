@@ -302,7 +302,9 @@ function computeSelectionRange(anchorPath: string, targetPath: string): RawRange
     // Prefer clamping to the anchor-level sibling the target is actually nested under, rather than
     // blowing past it to the first/last sibling — e.g. shift-clicking deep inside a later sequence
     // should stop at that sequence, not run all the way to the end of the document.
-    const targetSiblingIndex = childIndexUnderParent(targetPath, anchorParent);
+    const anchorDot = anchorPath.lastIndexOf('.');
+    const anchorParentPath = anchorDot === -1 ? '' : anchorPath.slice(0, anchorDot);
+    const targetSiblingIndex = childIndexUnderParent(targetPath, anchorParentPath);
     if (targetSiblingIndex !== undefined) {
       start = Math.min(anchorIndex, targetSiblingIndex);
       end = Math.max(anchorIndex, targetSiblingIndex);
