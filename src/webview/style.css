@@ -197,7 +197,8 @@ body {
 }
 
 .tree-row-spacer {
-  height: 22px;
+  /* 19px + 3px margin-top = ROW_HEIGHT (22px); the virtual scroller assumes every row is exactly 22px. */
+  height: 19px;
   box-sizing: border-box;
   border-top: 1px solid var(--vscode-panel-border);
   margin-top: 3px;
