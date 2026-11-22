@@ -50,7 +50,7 @@ interface ResolvedHighlight {
 }
 
 type Row =
-  | { kind: 'tag'; node: TreeNode; path: string; depth: number; hasChildren: boolean }
+  | { kind: 'tag'; node: TreeNode; path: string; depth: number; hasChildren: boolean; isOpen: boolean }
   | { kind: 'highlightHeader'; depth: number; highlight: ResolvedHighlight }
   | { kind: 'spacer'; depth: number };
 
@@ -484,8 +484,12 @@ function flattenLevel(nodes: TreeNode[], parentPath: string, depth: number, incl
     }
 
     const hasChildren = !!node.items && node.items.length > 0;
-    out.push({ kind: 'tag', node, path, depth, hasChildren });
-    if (hasChildren && expanded.has(path)) {
+    // While searching, reveal nested matches even under collapsed ancestors (without touching
+    // `expanded`, so clearing the search restores the prior expand/collapse state).
+    const isOpen =
+      hasChildren && (included ? node.items!.some((_, i) => included.has(`${path}.${i}`)) : expanded.has(path));
+    out.push({ kind: 'tag', node, path, depth, hasChildren, isOpen });
+    if (isOpen) {
       flattenLevel(node.items!, path, depth + 1, included, out);
     }
 
@@ -517,7 +521,7 @@ function renderGutter(row: TagRow): HTMLElement {
     gutter.appendChild(mark);
   }
 
-  if (row.hasChildren && !expanded.has(row.path)) {
+  if (row.hasChildren && !row.isOpen) {
     const colors = descendantColorsByNoteKey.get(row.node.noteKey) ?? [];
     if (colors.length > 0) {
       colors.slice(0, GUTTER_TICK_LIMIT).forEach((color) => {
@@ -661,7 +665,7 @@ function renderTagRow(row: TagRow): HTMLElement {
   if (row.hasChildren) {
     const caret = document.createElement('span');
     caret.className = 'caret';
-    caret.textContent = expanded.has(row.path) ? '▾' : '▸';
+    caret.textContent = row.isOpen ? '▾' : '▸';
     caret.addEventListener('click', (event) => {
       event.stopPropagation();
       if (searchQuery.trim().length === 0) {
