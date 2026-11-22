@@ -1,3 +1,4 @@
+import { inflateRawSync } from 'zlib';
 import * as dicomParser from 'dicom-parser';
 import type { DicomDataSet } from 'dicom-parser';
 import { TreeNode } from '../common/protocol';
@@ -10,6 +11,8 @@ const PIXEL_DATA_TAG = 'x7fe00010';
 const ITEM_TAG_DISPLAY = '(FFFE,E000)';
 const SOP_INSTANCE_UID_TAG = 'x00080018';
 const SOP_CLASS_UID_TAG = 'x00080016';
+/** Cap on the inflated size of a Deflated Explicit VR Little Endian dataset, so a deflate bomb can't exhaust memory. */
+const MAX_INFLATED_BYTES = 512 * 1024 * 1024;
 
 export interface ParseResult {
   elements?: TreeNode[];
@@ -23,7 +26,7 @@ export interface ParseResult {
 export function parseDicomFile(bytes: Uint8Array): ParseResult {
   let dataSet: DicomDataSet;
   try {
-    dataSet = dicomParser.parseDicom(bytes);
+    dataSet = dicomParser.parseDicom(bytes, { inflater: boundedInflater });
   } catch (err) {
     return { error: `Unable to parse file as DICOM: ${errorMessage(err)}` };
   }
@@ -41,6 +44,26 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
   } catch (err) {
     return { error: `Parsed DICOM meta information but failed to build the tag tree: ${errorMessage(err)}` };
   }
+}
+
+/**
+ * Replaces dicom-parser's built-in Node inflater, which is unbounded and calls Buffer#copy on the
+ * input (failing when it's a plain Uint8Array). Returns the header bytes followed by the inflated dataset.
+ */
+function boundedInflater(byteArray: Uint8Array, position: number): Uint8Array {
+  let inflated: Uint8Array;
+  try {
+    inflated = inflateRawSync(byteArray.subarray(position), { maxOutputLength: MAX_INFLATED_BYTES });
+  } catch (err) {
+    if (err instanceof RangeError) {
+      throw new Error(`deflated dataset inflates to more than ${MAX_INFLATED_BYTES / (1024 * 1024)} MiB`);
+    }
+    throw err;
+  }
+  const full = new Uint8Array(position + inflated.length);
+  full.set(byteArray.subarray(0, position), 0);
+  full.set(inflated, position);
+  return full;
 }
 
 function readTrimmedString(dataSet: DicomDataSet, tag: string): string | undefined {
