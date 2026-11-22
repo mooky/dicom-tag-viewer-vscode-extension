@@ -19,6 +19,12 @@ interface RuntimeNotes {
   notes: Record<string, NoteData>;
   highlights: HighlightData[];
   palette: string[];
+  /** JSON snapshot of notes/highlights/palette as last persisted, used to roll back a failed save. */
+  savedState: string;
+}
+
+function snapshotNotes(runtime: Pick<RuntimeNotes, 'notes' | 'highlights' | 'palette'>): string {
+  return JSON.stringify({ notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette });
 }
 
 export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<DicomDocument> {
@@ -46,7 +52,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
 
     let runtimeNotes: RuntimeNotes | undefined;
 
-    panel.webview.onDidReceiveMessage(async (message: WebviewToExtMessage) => {
+    const handleMessage = async (message: WebviewToExtMessage): Promise<void> => {
       switch (message.type) {
         case 'ready':
           runtimeNotes = await this.sendInitialState(document, panel.webview);
@@ -155,11 +161,27 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           break;
         }
       }
+    };
+
+    // Handle messages one at a time, so a later save can't finish before an earlier one and leave stale notes on disk.
+    let messageQueue: Promise<void> = Promise.resolve();
+    panel.webview.onDidReceiveMessage((message: WebviewToExtMessage) => {
+      messageQueue = messageQueue
+        .then(() => handleMessage(message))
+        .catch((err) => console.error('DICOM viewer: failed to handle webview message', err));
     });
   }
 
   private async persistAndNotify(webview: vscode.Webview, runtime: RuntimeNotes): Promise<void> {
-    await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.highlights, runtime.palette);
+    try {
+      await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.highlights, runtime.palette);
+      runtime.savedState = snapshotNotes(runtime);
+    } catch (err) {
+      // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
+      Object.assign(runtime, JSON.parse(runtime.savedState));
+      const reason = err instanceof Error ? err.message : String(err);
+      void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+    }
     const message: ExtToWebviewMessage = {
       type: 'notesUpdate',
       notes: { notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette, contentDrift: false },
@@ -193,7 +215,14 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     };
     webview.postMessage(message);
 
-    return { identity, contentHash, notes: loaded.notes, highlights: loaded.highlights, palette: loaded.palette };
+    return {
+      identity,
+      contentHash,
+      notes: loaded.notes,
+      highlights: loaded.highlights,
+      palette: loaded.palette,
+      savedState: snapshotNotes(loaded),
+    };
   }
 
   private getHtml(webview: vscode.Webview): string {
