@@ -1,7 +1,7 @@
 import * as dicomParser from 'dicom-parser';
 import type { DicomDataSet } from 'dicom-parser';
 import { TreeNode } from '../common/protocol';
-import { formatTagDisplay, isStandardTag, lookupTag, toDictKey } from './dictionary';
+import { formatTagDisplay, isStandardTag, lookupTag, standardDictKey, toDictKey } from './dictionary';
 import { resolveReferenceUrl } from './dicomStandardReference';
 import { formatValue, isBinaryVR } from './valueFormatting';
 
@@ -78,7 +78,8 @@ function buildNode(
   const displayTag = formatTagDisplay(tag);
   const name = dictEntry.name;
   const noteKey = parentChain ? `${parentChain}>${displayTag}` : displayTag;
-  const hexChain = [...hexChainPrefix, toDictKey(tag)];
+  // Repeating-group tags (e.g. overlays) are keyed by their "60xx0010"-style pattern in the reference data.
+  const hexChain = [...hexChainPrefix, standardDictKey(tag) ?? toDictKey(tag)];
   const referenceUrl = isStandardTag(tag) ? resolveReferenceUrl(sopClassUid, hexChain) : undefined;
 
   if (rawVr === 'SQ') {
