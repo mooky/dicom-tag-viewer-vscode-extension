@@ -40,6 +40,9 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
       localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist')],
     };
     panel.webview.html = this.getHtml(panel.webview);
+    if (document.warning) {
+      void vscode.window.showWarningMessage(document.warning);
+    }
 
     let runtimeNotes: RuntimeNotes | undefined;
 

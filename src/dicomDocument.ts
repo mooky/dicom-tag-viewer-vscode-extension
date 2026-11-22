@@ -11,6 +11,8 @@ export class DicomDocument implements vscode.CustomDocument {
     public readonly sopInstanceUid: string | undefined,
     /** Bytes that element offsets index into (the inflated stream for deflated files). */
     private readonly parsedBytes: Uint8Array,
+    /** Non-fatal parse problem (e.g. truncated file) to surface to the user. */
+    public readonly warning: string | undefined,
   ) {}
 
   static async open(uri: vscode.Uri): Promise<DicomDocument> {
@@ -23,6 +25,7 @@ export class DicomDocument implements vscode.CustomDocument {
       result.error,
       result.sopInstanceUid,
       result.byteArray ?? bytes,
+      result.warning,
     );
   }
 

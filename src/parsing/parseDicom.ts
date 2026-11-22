@@ -21,14 +21,24 @@ export interface ParseResult {
   sopClassUid?: string;
   /** The bytes element offsets refer to — differs from the file bytes for deflated transfer syntaxes. */
   byteArray?: Uint8Array;
+  /** Set when the file could only be partially parsed (e.g. truncated); `elements` holds what was read. */
+  warning?: string;
 }
 
 export function parseDicomFile(bytes: Uint8Array): ParseResult {
   let dataSet: DicomDataSet;
+  let warning: string | undefined;
   try {
     dataSet = dicomParser.parseDicom(bytes, { inflater: boundedInflater });
   } catch (err) {
-    return { error: `Unable to parse file as DICOM: ${errorMessage(err)}` };
+    // dicom-parser throws { exception, dataSet } when the dataset fails partway (e.g. a truncated file).
+    const partial = isPartialParseError(err) ? err.dataSet : undefined;
+    if (!partial || Object.keys(partial.elements).length === 0) {
+      return { error: `Unable to parse file as DICOM: ${errorMessage(err)}` };
+    }
+    dataSet = partial;
+    mergeMetaHeader(bytes, dataSet);
+    warning = `File could only be partially parsed; showing the elements read before the error: ${errorMessage(err)}`;
   }
 
   try {
@@ -40,6 +50,7 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
       sopInstanceUid: readTrimmedString(dataSet, SOP_INSTANCE_UID_TAG),
       sopClassUid,
       byteArray: dataSet.byteArray,
+      warning,
     };
   } catch (err) {
     return { error: `Parsed DICOM meta information but failed to build the tag tree: ${errorMessage(err)}` };
@@ -75,7 +86,24 @@ function readTrimmedString(dataSet: DicomDataSet, tag: string): string | undefin
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function isPartialParseError(err: unknown): err is { exception: unknown; dataSet: DicomDataSet } {
+  return typeof err === 'object' && err !== null && 'exception' in err && 'dataSet' in err;
+}
+
+/** A partial dataset from dicom-parser lacks the file meta group (merged only on success); add it back. */
+function mergeMetaHeader(bytes: Uint8Array, dataSet: DicomDataSet): void {
+  try {
+    const meta = dicomParser.readPart10Header(bytes);
+    Object.assign(dataSet.elements, meta.elements);
+  } catch {
+    // Meta header unreadable; show the partial dataset without it.
+  }
+}
+
 function errorMessage(err: unknown): string {
+  if (isPartialParseError(err)) {
+    return errorMessage(err.exception);
+  }
   return err instanceof Error ? err.message : String(err);
 }
 
