@@ -1123,34 +1123,60 @@ function renderDetail(): void {
   }
 
   if (node.binary) {
-    const cached = hexCache.get(node.binary.id);
-    if (cached) {
-      if (node.length > HEX_MAX_BYTES) {
-        const notice = document.createElement('div');
-        notice.className = 'detail-empty';
-        notice.textContent = `Showing first ${HEX_MAX_BYTES.toLocaleString()} of ${node.length.toLocaleString()} bytes.`;
-        detail.appendChild(notice);
-      }
-      const pre = document.createElement('pre');
-      pre.className = 'hex-view';
-      pre.textContent = cached;
-      detail.appendChild(pre);
-    } else {
-      const binary = node.binary;
-      detail.appendChild(
-        makeButton('Load Hex', () => {
-          postMessage({
-            type: 'requestHex',
-            id: binary.id,
-            offset: binary.offset,
-            length: Math.min(node.length, HEX_MAX_BYTES),
-          });
-        }),
-      );
-    }
+    const hexSection = document.createElement('div');
+    hexSection.className = 'hex-section';
+    hexSection.dataset.hexId = node.binary.id;
+    fillHexSection(hexSection, node);
+    detail.appendChild(hexSection);
   }
 
   renderNoteEditor(node, detail);
+}
+
+function fillHexSection(section: HTMLElement, node: TreeNode): void {
+  section.innerHTML = '';
+  const binary = node.binary!;
+  const cached = hexCache.get(binary.id);
+  if (cached) {
+    if (node.length > HEX_MAX_BYTES) {
+      const notice = document.createElement('div');
+      notice.className = 'detail-empty';
+      notice.textContent = `Showing first ${HEX_MAX_BYTES.toLocaleString()} of ${node.length.toLocaleString()} bytes.`;
+      section.appendChild(notice);
+    }
+    const pre = document.createElement('pre');
+    pre.className = 'hex-view';
+    pre.textContent = cached;
+    section.appendChild(pre);
+  } else {
+    section.appendChild(
+      makeButton('Load Hex', () => {
+        postMessage({
+          type: 'requestHex',
+          id: binary.id,
+          offset: binary.offset,
+          length: Math.min(node.length, HEX_MAX_BYTES),
+        });
+      }),
+    );
+  }
+}
+
+/** Swaps in a just-loaded hex dump without rebuilding the detail pane (which would wipe unsaved note text). */
+function refreshHexSection(id: string): void {
+  if (!elements || !selectedPath) {
+    return;
+  }
+  const node = findNodeByPath(elements, selectedPath);
+  if (!node?.binary || node.binary.id !== id) {
+    return;
+  }
+  const section = Array.from(document.querySelectorAll<HTMLElement>('#detail .hex-section')).find(
+    (el) => el.dataset.hexId === id,
+  );
+  if (section) {
+    fillHexSection(section, node);
+  }
 }
 
 function renderDriftBanner(): void {
@@ -1388,7 +1414,7 @@ window.addEventListener('message', (event: MessageEvent<ExtToWebviewMessage>) =>
     case 'hexChunk': {
       const bytes = base64ToBytes(message.bytes);
       hexCache.set(message.id, formatHexDump(bytes, message.offset));
-      renderDetail();
+      refreshHexSection(message.id);
       break;
     }
   }
