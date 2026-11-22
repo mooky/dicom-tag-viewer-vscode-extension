@@ -3,6 +3,8 @@ import { ExtToWebviewMessage, HighlightData, NoteData, TreeNode, WebviewToExtMes
 const ROW_HEIGHT = 22;
 const GUTTER_TICK_LIMIT = 3;
 const FALLBACK_COLOR = '#e06c75';
+/** Cap on bytes requested for the hex view; dumping full Pixel Data freezes the webview. */
+const HEX_MAX_BYTES = 64 * 1024;
 
 const vscode = acquireVsCodeApi();
 
@@ -1123,6 +1125,12 @@ function renderDetail(): void {
   if (node.binary) {
     const cached = hexCache.get(node.binary.id);
     if (cached) {
+      if (node.length > HEX_MAX_BYTES) {
+        const notice = document.createElement('div');
+        notice.className = 'detail-empty';
+        notice.textContent = `Showing first ${HEX_MAX_BYTES.toLocaleString()} of ${node.length.toLocaleString()} bytes.`;
+        detail.appendChild(notice);
+      }
       const pre = document.createElement('pre');
       pre.className = 'hex-view';
       pre.textContent = cached;
@@ -1131,7 +1139,12 @@ function renderDetail(): void {
       const binary = node.binary;
       detail.appendChild(
         makeButton('Load Hex', () => {
-          postMessage({ type: 'requestHex', id: binary.id, offset: binary.offset, length: node.length });
+          postMessage({
+            type: 'requestHex',
+            id: binary.id,
+            offset: binary.offset,
+            length: Math.min(node.length, HEX_MAX_BYTES),
+          });
         }),
       );
     }
