@@ -860,6 +860,8 @@ function renderSwatchPicker(initialColor: string, onSelect: (color: string) => v
     customInput.addEventListener('change', () => {
       selectedColor = customInput.value;
       if (!palette.includes(selectedColor)) {
+        // Show the new swatch immediately; the extension's palette-only update won't re-render this form.
+        palette.push(selectedColor);
         postMessage({ type: 'addPaletteColor', color: selectedColor });
       }
       onSelect(selectedColor);
@@ -1348,18 +1350,26 @@ window.addEventListener('message', (event: MessageEvent<ExtToWebviewMessage>) =>
       elements = null;
       renderApp();
       break;
-    case 'notesUpdate':
+    case 'notesUpdate': {
+      // A palette-only update (e.g. after picking a custom color) must not rebuild the detail pane,
+      // or it wipes whatever the user is typing in an open note/highlight form.
+      const paletteOnly =
+        JSON.stringify(message.notes.notes) === JSON.stringify(notes) &&
+        JSON.stringify(message.notes.highlights) === JSON.stringify(highlights);
       notes = message.notes.notes;
       highlights = message.notes.highlights;
       palette = message.notes.palette;
       contentDrift = message.notes.contentDrift;
       recomputeNoteIndexes();
       recomputeRowsAndRender();
-      renderDetail();
+      if (!paletteOnly) {
+        renderDetail();
+      }
       renderDriftBanner();
       renderNotesList();
       renderHighlightsList();
       break;
+    }
     case 'hexChunk': {
       const bytes = base64ToBytes(message.bytes);
       hexCache.set(message.id, formatHexDump(bytes, message.offset));
