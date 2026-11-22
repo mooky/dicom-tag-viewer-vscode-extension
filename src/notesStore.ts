@@ -21,6 +21,8 @@ export interface LoadedNotes {
   highlights: HighlightData[];
   palette: string[];
   contentDrift: boolean;
+  /** Content hash recorded with the stored notes, if a notes file existed. */
+  storedContentHash?: string;
   /** Set when an existing notes file couldn't be loaded; the caller should surface it to the user. */
   warning?: string;
 }
@@ -76,6 +78,7 @@ export class NotesStore {
         highlights: (stored.highlights ?? []).map((h) => ({ ...h, note: h.note ?? '' })),
         palette: stored.palette && stored.palette.length > 0 ? stored.palette : [...DEFAULT_PALETTE],
         contentDrift: stored.contentHash !== currentContentHash,
+        storedContentHash: stored.contentHash,
       };
     } catch (err) {
       if ((err as { code?: unknown } | undefined)?.code === 'FileNotFound') {

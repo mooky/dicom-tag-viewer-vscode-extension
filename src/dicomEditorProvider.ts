@@ -13,14 +13,23 @@ function getNonce(): string {
   return text;
 }
 
+/**
+ * In-memory notes for one file identity, shared by every open editor that resolves to it (e.g. copies
+ * of a file with the same SOP Instance UID), so one editor's edits can't be overwritten by another's.
+ */
 interface RuntimeNotes {
   identity: FileIdentity;
-  contentHash: string;
   notes: Record<string, NoteData>;
   highlights: HighlightData[];
   palette: string[];
   /** JSON snapshot of notes/highlights/palette as last persisted, used to roll back a failed save. */
   savedState: string;
+  /** Content hash recorded in the notes file, used to compute per-editor drift. */
+  storedContentHash: string | undefined;
+  /** Webviews showing these notes; all are notified on every change. */
+  webviews: Set<vscode.Webview>;
+  /** Serializes saves across all editors sharing these notes. */
+  saveQueue: Promise<void>;
 }
 
 function snapshotNotes(runtime: Pick<RuntimeNotes, 'notes' | 'highlights' | 'palette'>): string {
@@ -31,6 +40,8 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   public static readonly viewType = 'dicomDump.viewer';
 
   private readonly notesStore: NotesStore;
+  /** Shared notes keyed by identity; an entry lives while at least one editor is attached to it. */
+  private readonly notesSessions = new Map<string, { webviews: Set<vscode.Webview>; runtime: Promise<RuntimeNotes> }>();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.notesStore = new NotesStore(context);
@@ -51,11 +62,14 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     }
 
     let runtimeNotes: RuntimeNotes | undefined;
+    const contentHash = computeContentHash(document.bytes);
+    const identity = resolveIdentity(document.sopInstanceUid, contentHash);
+    panel.onDidDispose(() => this.releaseNotes(identity, panel.webview));
 
     const handleMessage = async (message: WebviewToExtMessage): Promise<void> => {
       switch (message.type) {
         case 'ready':
-          runtimeNotes = await this.sendInitialState(document, panel.webview);
+          runtimeNotes = await this.sendInitialState(document, panel.webview, identity, contentHash);
           break;
         case 'requestHex': {
           const bytes = document.readBytes(message.offset, message.length);
@@ -81,7 +95,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           if (!runtimeNotes.palette.includes(message.color)) {
             runtimeNotes.palette.push(message.color);
           }
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
         case 'clearNote': {
@@ -89,7 +103,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
             break;
           }
           delete runtimeNotes.notes[message.noteKey];
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
         case 'addPaletteColor': {
@@ -97,7 +111,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
             break;
           }
           runtimeNotes.palette.push(message.color);
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
         case 'createHighlight': {
@@ -117,7 +131,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           if (!runtimeNotes.palette.includes(message.color)) {
             runtimeNotes.palette.push(message.color);
           }
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
         case 'updateHighlight': {
@@ -149,7 +163,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           if (message.collapsed !== undefined) {
             highlight.collapsed = message.collapsed;
           }
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
         case 'deleteHighlight': {
@@ -157,7 +171,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
             break;
           }
           runtimeNotes.highlights = runtimeNotes.highlights.filter((h) => h.id !== message.id);
-          await this.persistAndNotify(panel.webview, runtimeNotes);
+          await this.persistAndNotify(runtimeNotes, contentHash);
           break;
         }
       }
@@ -172,57 +186,97 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     });
   }
 
-  private async persistAndNotify(webview: vscode.Webview, runtime: RuntimeNotes): Promise<void> {
-    try {
-      await this.notesStore.save(runtime.identity, runtime.contentHash, runtime.notes, runtime.highlights, runtime.palette);
-      runtime.savedState = snapshotNotes(runtime);
-    } catch (err) {
-      // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
-      Object.assign(runtime, JSON.parse(runtime.savedState));
-      const reason = err instanceof Error ? err.message : String(err);
-      void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
-    }
-    const message: ExtToWebviewMessage = {
-      type: 'notesUpdate',
-      notes: { notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette, contentDrift: false },
-    };
-    webview.postMessage(message);
+  private async persistAndNotify(runtime: RuntimeNotes, contentHash: string): Promise<void> {
+    const saved = runtime.saveQueue.then(async () => {
+      try {
+        await this.notesStore.save(runtime.identity, contentHash, runtime.notes, runtime.highlights, runtime.palette);
+        runtime.savedState = snapshotNotes(runtime);
+        runtime.storedContentHash = contentHash;
+      } catch (err) {
+        // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
+        Object.assign(runtime, JSON.parse(runtime.savedState));
+        const reason = err instanceof Error ? err.message : String(err);
+        void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+      }
+      const message: ExtToWebviewMessage = {
+        type: 'notesUpdate',
+        notes: { notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette, contentDrift: false },
+      };
+      for (const webview of runtime.webviews) {
+        webview.postMessage(message);
+      }
+    });
+    runtime.saveQueue = saved;
+    await saved;
   }
 
-  private async sendInitialState(document: DicomDocument, webview: vscode.Webview): Promise<RuntimeNotes | undefined> {
+  private notesSessionKey(identity: FileIdentity): string {
+    return `${identity.kind}:${identity.value}`;
+  }
+
+  /** Attaches a webview to the shared notes for an identity, loading them from disk on first use. */
+  private acquireNotes(identity: FileIdentity, contentHash: string, webview: vscode.Webview): Promise<RuntimeNotes> {
+    const key = this.notesSessionKey(identity);
+    let session = this.notesSessions.get(key);
+    if (!session) {
+      const webviews = new Set<vscode.Webview>();
+      const runtime = this.notesStore.load(identity, contentHash).then((loaded): RuntimeNotes => {
+        if (loaded.warning) {
+          void vscode.window.showWarningMessage(loaded.warning);
+        }
+        return {
+          identity,
+          notes: loaded.notes,
+          highlights: loaded.highlights,
+          palette: loaded.palette,
+          savedState: snapshotNotes(loaded),
+          storedContentHash: loaded.storedContentHash,
+          webviews,
+          saveQueue: Promise.resolve(),
+        };
+      });
+      session = { webviews, runtime };
+      this.notesSessions.set(key, session);
+    }
+    session.webviews.add(webview);
+    return session.runtime;
+  }
+
+  private releaseNotes(identity: FileIdentity, webview: vscode.Webview): void {
+    const key = this.notesSessionKey(identity);
+    const session = this.notesSessions.get(key);
+    if (session?.webviews.delete(webview) && session.webviews.size === 0) {
+      this.notesSessions.delete(key);
+    }
+  }
+
+  private async sendInitialState(
+    document: DicomDocument,
+    webview: vscode.Webview,
+    identity: FileIdentity,
+    contentHash: string,
+  ): Promise<RuntimeNotes | undefined> {
     if (document.error) {
       const message: ExtToWebviewMessage = { type: 'parseError', message: document.error };
       webview.postMessage(message);
       return undefined;
     }
 
-    const contentHash = computeContentHash(document.bytes);
-    const identity = resolveIdentity(document.sopInstanceUid, contentHash);
-    const loaded = await this.notesStore.load(identity, contentHash);
-    if (loaded.warning) {
-      void vscode.window.showWarningMessage(loaded.warning);
-    }
+    const runtime = await this.acquireNotes(identity, contentHash, webview);
 
     const message: ExtToWebviewMessage = {
       type: 'model',
       elements: document.elements ?? [],
       notes: {
-        notes: loaded.notes,
-        highlights: loaded.highlights,
-        palette: loaded.palette,
-        contentDrift: loaded.contentDrift,
+        notes: runtime.notes,
+        highlights: runtime.highlights,
+        palette: runtime.palette,
+        contentDrift: runtime.storedContentHash !== undefined && runtime.storedContentHash !== contentHash,
       },
     };
     webview.postMessage(message);
 
-    return {
-      identity,
-      contentHash,
-      notes: loaded.notes,
-      highlights: loaded.highlights,
-      palette: loaded.palette,
-      savedState: snapshotNotes(loaded),
-    };
+    return runtime;
   }
 
   private getHtml(webview: vscode.Webview): string {
