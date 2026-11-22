@@ -126,6 +126,10 @@ body {
   background-color: color-mix(in srgb, var(--row-wash) 12%, transparent);
 }
 
+.tree-row.highlight-wash:hover {
+  background-color: var(--vscode-list-hoverBackground);
+}
+
 .tree-row.highlight-wash.selected {
   background-color: var(--vscode-list-activeSelectionBackground);
 }
