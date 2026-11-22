@@ -1227,6 +1227,7 @@ function jumpToNote(noteKey: string): void {
   }
   selectedPath = targetPath;
   selectedHighlightId = null;
+  pendingHighlightCreation = null;
   recomputeRowsAndRender();
   renderDetail();
 
@@ -1250,6 +1251,7 @@ function jumpToHighlight(id: string): void {
   }
   selectedHighlightId = id;
   selectedPath = null;
+  pendingHighlightCreation = null;
   recomputeRowsAndRender();
   renderDetail();
 
