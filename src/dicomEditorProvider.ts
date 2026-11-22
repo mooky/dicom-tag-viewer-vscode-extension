@@ -177,6 +177,9 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     const contentHash = computeContentHash(document.bytes);
     const identity = resolveIdentity(document.sopInstanceUid, contentHash);
     const loaded = await this.notesStore.load(identity, contentHash);
+    if (loaded.warning) {
+      void vscode.window.showWarningMessage(loaded.warning);
+    }
 
     const message: ExtToWebviewMessage = {
       type: 'model',
