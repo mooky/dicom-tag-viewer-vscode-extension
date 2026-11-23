@@ -41,12 +41,26 @@ interface StoredNotesFile {
 function parseStoredNotes(text: string): StoredNotesFile {
   const stored: unknown = JSON.parse(text);
   const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const isString = (v: unknown) => typeof v === 'string';
+  const isNote = (v: unknown) => isObject(v) && isString((v as NoteData).color) && isString((v as NoteData).text);
+  const isHighlight = (v: unknown) => {
+    if (!isObject(v)) {
+      return false;
+    }
+    const h = v as Partial<HighlightData>;
+    return (
+      [h.id, h.name, h.color, h.parentNoteKey, h.firstChildNoteKey, h.lastChildNoteKey].every(isString) &&
+      // Older files predate the highlight note; collapsed is read as a truthy flag.
+      (h.note === undefined || isString(h.note)) &&
+      (h.collapsed === undefined || typeof h.collapsed === 'boolean')
+    );
+  };
   const s = stored as Partial<StoredNotesFile>;
   if (
     !isObject(stored) ||
-    (s.notes !== undefined && !isObject(s.notes)) ||
-    (s.highlights !== undefined && !Array.isArray(s.highlights)) ||
-    (s.palette !== undefined && !Array.isArray(s.palette))
+    (s.notes !== undefined && !(isObject(s.notes) && Object.values(s.notes).every(isNote))) ||
+    (s.highlights !== undefined && !(Array.isArray(s.highlights) && s.highlights.every(isHighlight))) ||
+    (s.palette !== undefined && !(Array.isArray(s.palette) && s.palette.every(isString)))
   ) {
     throw new Error('notes file has an unexpected structure');
   }
