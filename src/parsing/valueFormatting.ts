@@ -176,6 +176,31 @@ function formatNumeric(vr: string, dataSet: DicomDataSet, tag: string, length: n
   return values.length > 0 ? values.join(', ') : undefined;
 }
 
+/** US|SS lookup table descriptors: entry count, first mapped value, bits per entry (PS3.3 C.7.6.3.1.5, C.11.1.1). */
+const LUT_DESCRIPTOR_TAGS = new Set([
+  'x00281100',
+  'x00281101',
+  'x00281102',
+  'x00281103',
+  'x00281111',
+  'x00281112',
+  'x00281113',
+  'x00283002',
+]);
+
+/** Only the first mapped value follows the VR's signedness; the entry count and bit depth are always unsigned. */
+function formatLutDescriptor(vr: string, dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+  const values: string[] = [];
+  for (let i = 0; i < Math.floor(length / 2); i++) {
+    const value = i === 1 && vr === 'SS' ? dataSet.int16(tag, i) : dataSet.uint16(tag, i);
+    if (value === undefined) {
+      break;
+    }
+    values.push(String(value));
+  }
+  return values.length > 0 ? values.join(', ') : undefined;
+}
+
 function formatBinaryHex(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
   const element = dataSet.elements[tag];
   if (!element) {
@@ -231,6 +256,10 @@ export function formatValue(
 ): string | undefined {
   if (length === 0) {
     return '';
+  }
+
+  if ((vr === 'US' || vr === 'SS') && LUT_DESCRIPTOR_TAGS.has(tag.toLowerCase())) {
+    return formatLutDescriptor(vr, dataSet, tag, length);
   }
 
   if (vr in NUMERIC_VR_READERS) {
