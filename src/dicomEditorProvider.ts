@@ -274,9 +274,18 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   private releaseNotes(identity: FileIdentity, webview: vscode.Webview): void {
     const key = this.notesSessionKey(identity);
     const session = this.notesSessions.get(key);
-    if (session?.webviews.delete(webview) && session.webviews.size === 0) {
-      this.notesSessions.delete(key);
+    if (!session?.webviews.delete(webview) || session.webviews.size > 0) {
+      return;
     }
+    // Keep the session until its queued saves land, so an editor reopened meanwhile reuses the in-memory
+    // notes instead of loading a stale file and later overwriting the closed editor's last edit.
+    void session.runtime
+      .then((runtime) => runtime.saveQueue)
+      .then(() => {
+        if (this.notesSessions.get(key) === session && session.webviews.size === 0) {
+          this.notesSessions.delete(key);
+        }
+      });
   }
 
   private async sendInitialState(
