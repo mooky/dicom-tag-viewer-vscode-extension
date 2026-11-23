@@ -1,17 +1,12 @@
 import * as vscode from 'vscode';
-import { randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { DicomDocument } from './dicomDocument';
 import { ExtToWebviewMessage, HighlightData, NoteData, WebviewToExtMessage } from './common/protocol';
 import { isValidWebviewMessage } from './messageValidation';
 import { FileIdentity, NotesStore, computeContentHash, resolveIdentity } from './notesStore';
 
 function getNonce(): string {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let text = '';
-  for (let i = 0; i < 32; i++) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return text;
+  return randomBytes(16).toString('base64');
 }
 
 /**
