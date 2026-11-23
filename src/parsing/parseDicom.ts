@@ -112,15 +112,23 @@ function writeHeaderSkipElement(full: Uint8Array, position: number): void {
  * LUT descriptors) the choice follows Pixel Representation (0028,0103): 1 means signed. Other multi-VR
  * entries take the first option.
  */
-function implicitVr(dictVr: string | undefined, pixelRepresentation: number | undefined): string {
+function implicitVr(tag: string, dictVr: string | undefined, pixelRepresentation: number | undefined): string {
   if (!dictVr) {
-    return 'UN';
+    return isPrivateCreator(tag) ? 'LO' : 'UN';
   }
   const options = dictVr.split('|');
   if (pixelRepresentation === 1 && options.includes('US') && options.includes('SS')) {
     return 'SS';
   }
   return options[0];
+}
+
+/** Private Creator elements, (gggg,0010)-(gggg,00FF) in an odd group, are LO by definition (PS3.5 7.8.1). */
+function isPrivateCreator(tag: string): boolean {
+  const key = toDictKey(tag);
+  const group = parseInt(key.substring(0, 4), 16);
+  const element = parseInt(key.substring(4, 8), 16);
+  return (group & 1) === 1 && element >= 0x0010 && element <= 0x00ff;
 }
 
 function readTrimmedString(dataSet: DicomDataSet, tag: string): string | undefined {
@@ -184,7 +192,7 @@ function buildNode(
 ): TreeNode {
   const element = dataSet.elements[tag];
   const dictEntry = lookupTag(tag);
-  const rawVr = element.vr ?? implicitVr(dictEntry.vr, pixelRepresentation);
+  const rawVr = element.vr ?? implicitVr(tag, dictEntry.vr, pixelRepresentation);
   const displayTag = formatTagDisplay(tag);
   const name = dictEntry.name;
   const noteKey = parentChain ? `${parentChain}>${displayTag}` : displayTag;

@@ -185,6 +185,29 @@ function formatBinaryHex(dataSet: DicomDataSet, tag: string, length: number): st
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
 }
 
+/** True if the value is printable ASCII (plus tab/CR/LF), ignoring trailing NUL/space padding. */
+function isPrintableText(dataSet: DicomDataSet, tag: string, length: number): boolean {
+  const element = dataSet.elements[tag];
+  if (!element) {
+    return false;
+  }
+  const bytes = dataSet.byteArray.subarray(element.dataOffset, element.dataOffset + length);
+  let end = bytes.length;
+  while (end > 0 && (bytes[end - 1] === 0x00 || bytes[end - 1] === 0x20)) {
+    end--;
+  }
+  if (end === 0) {
+    return false;
+  }
+  for (let i = 0; i < end; i++) {
+    const b = bytes[i];
+    if (!(b >= 0x20 && b <= 0x7e) && b !== 0x09 && b !== 0x0a && b !== 0x0d) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function formatAttributeTags(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
   const values: string[] = [];
   for (let i = 0; i < Math.floor(length / 4); i++) {
@@ -212,6 +235,12 @@ export function formatValue(
 
   if (vr in NUMERIC_VR_READERS) {
     return formatNumeric(vr, dataSet, tag, length);
+  }
+
+  // UN covers implicit-VR tags missing from the dictionary (e.g. private text), so show it as text when it is.
+  if (vr === 'UN' && isPrintableText(dataSet, tag, length)) {
+    const text = dataSet.string(tag);
+    return text === undefined ? undefined : formatGenericString(text);
   }
 
   if (isBinaryVR(vr)) {
