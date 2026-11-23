@@ -174,6 +174,12 @@ export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, leng
       return formatPersonName(raw);
     case 'UI':
       return formatUid(raw);
+    // Single-valued text VRs: a backslash is literal text, not a value delimiter (PS3.5 6.2).
+    case 'LT':
+    case 'ST':
+    case 'UT':
+    case 'UR':
+      return raw;
     default:
       return formatGenericString(raw);
   }
