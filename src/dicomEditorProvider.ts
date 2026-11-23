@@ -28,6 +28,8 @@ interface RuntimeNotes {
    * editor's lifetime so a later save, which records the new hash, doesn't silently hide the warning.
    */
   webviews: Map<vscode.Webview, boolean | undefined>;
+  /** Set when the notes file exists but couldn't be loaded; saving would overwrite it. */
+  saveBlocked: boolean;
   /** Serializes saves across all editors sharing these notes. */
   saveQueue: Promise<void>;
 }
@@ -205,6 +207,9 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   private async persistAndNotify(runtime: RuntimeNotes, contentHash: string): Promise<void> {
     const saved = runtime.saveQueue.then(async () => {
       try {
+        if (runtime.saveBlocked) {
+          throw new Error('the existing notes file could not be loaded; reopen the file to retry');
+        }
         await this.notesStore.save(runtime.identity, contentHash, runtime.notes, runtime.highlights, runtime.palette);
         runtime.savedState = snapshotNotes(runtime);
         runtime.storedContentHash = contentHash;
@@ -252,6 +257,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           palette: loaded.palette,
           savedState: snapshotNotes(loaded),
           storedContentHash: loaded.storedContentHash,
+          saveBlocked: loaded.saveBlocked ?? false,
           webviews,
           saveQueue: Promise.resolve(),
         };
