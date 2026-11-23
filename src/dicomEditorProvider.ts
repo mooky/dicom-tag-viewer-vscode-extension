@@ -26,8 +26,12 @@ interface RuntimeNotes {
   savedState: string;
   /** Content hash recorded in the notes file, used to compute per-editor drift. */
   storedContentHash: string | undefined;
-  /** Webviews showing these notes; all are notified on every change. */
-  webviews: Set<vscode.Webview>;
+  /**
+   * Webviews showing these notes (all are notified on every change), each mapped to whether its file had
+   * drifted from the stored hash when it opened (undefined until computed). The flag is kept for the
+   * editor's lifetime so a later save, which records the new hash, doesn't silently hide the warning.
+   */
+  webviews: Map<vscode.Webview, boolean | undefined>;
   /** Serializes saves across all editors sharing these notes. */
   saveQueue: Promise<void>;
 }
@@ -41,7 +45,10 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
 
   private readonly notesStore: NotesStore;
   /** Shared notes keyed by identity; an entry lives while at least one editor is attached to it. */
-  private readonly notesSessions = new Map<string, { webviews: Set<vscode.Webview>; runtime: Promise<RuntimeNotes> }>();
+  private readonly notesSessions = new Map<
+    string,
+    { webviews: Map<vscode.Webview, boolean | undefined>; runtime: Promise<RuntimeNotes> }
+  >();
 
   constructor(private readonly context: vscode.ExtensionContext) {
     this.notesStore = new NotesStore(context);
@@ -198,11 +205,16 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
         const reason = err instanceof Error ? err.message : String(err);
         void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
       }
-      const message: ExtToWebviewMessage = {
-        type: 'notesUpdate',
-        notes: { notes: runtime.notes, highlights: runtime.highlights, palette: runtime.palette, contentDrift: false },
-      };
-      for (const webview of runtime.webviews) {
+      for (const [webview, contentDrift] of runtime.webviews) {
+        const message: ExtToWebviewMessage = {
+          type: 'notesUpdate',
+          notes: {
+            notes: runtime.notes,
+            highlights: runtime.highlights,
+            palette: runtime.palette,
+            contentDrift: contentDrift ?? false,
+          },
+        };
         webview.postMessage(message);
       }
     });
@@ -219,7 +231,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     const key = this.notesSessionKey(identity);
     let session = this.notesSessions.get(key);
     if (!session) {
-      const webviews = new Set<vscode.Webview>();
+      const webviews = new Map<vscode.Webview, boolean | undefined>();
       const runtime = this.notesStore.load(identity, contentHash).then((loaded): RuntimeNotes => {
         if (loaded.warning) {
           void vscode.window.showWarningMessage(loaded.warning);
@@ -238,7 +250,9 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
       session = { webviews, runtime };
       this.notesSessions.set(key, session);
     }
-    session.webviews.add(webview);
+    if (!session.webviews.has(webview)) {
+      session.webviews.set(webview, undefined);
+    }
     return session.runtime;
   }
 
@@ -263,6 +277,11 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
     }
 
     const runtime = await this.acquireNotes(identity, contentHash, webview);
+    let contentDrift = runtime.webviews.get(webview);
+    if (contentDrift === undefined) {
+      contentDrift = runtime.storedContentHash !== undefined && runtime.storedContentHash !== contentHash;
+      runtime.webviews.set(webview, contentDrift);
+    }
 
     const message: ExtToWebviewMessage = {
       type: 'model',
@@ -271,7 +290,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
         notes: runtime.notes,
         highlights: runtime.highlights,
         palette: runtime.palette,
-        contentDrift: runtime.storedContentHash !== undefined && runtime.storedContentHash !== contentHash,
+        contentDrift,
       },
     };
     webview.postMessage(message);
