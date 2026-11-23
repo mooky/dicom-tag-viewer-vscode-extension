@@ -630,6 +630,10 @@ function showTreeContextMenu(event: MouseEvent, row: TagRow): void {
   }
 
   document.body.appendChild(menu);
+  // Keep the menu inside the viewport when opened near the right/bottom edge.
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(0, Math.min(event.clientX, window.innerWidth - rect.width))}px`;
+  menu.style.top = `${Math.max(0, Math.min(event.clientY, window.innerHeight - rect.height))}px`;
   setTimeout(() => document.addEventListener('click', closeContextMenu), 0);
 }
 
