@@ -76,15 +76,24 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           break;
         case 'requestHex': {
           const bytes = document.readBytes(message.offset, message.length);
-          if (bytes) {
-            const post: ExtToWebviewMessage = {
-              type: 'hexChunk',
-              id: message.id,
-              offset: message.offset,
-              bytes: Buffer.from(bytes).toString('base64'),
-            };
-            panel.webview.postMessage(post);
+          if (!bytes || bytes.length === 0) {
+            void vscode.window.showErrorMessage(
+              `Can't load hex: no data at offset ${message.offset} (the file may be truncated).`,
+            );
+            break;
           }
+          if (bytes.length < message.length) {
+            void vscode.window.showWarningMessage(
+              `Only ${bytes.length} of ${message.length} requested bytes exist; the file appears to be truncated.`,
+            );
+          }
+          const post: ExtToWebviewMessage = {
+            type: 'hexChunk',
+            id: message.id,
+            offset: message.offset,
+            bytes: Buffer.from(bytes).toString('base64'),
+          };
+          panel.webview.postMessage(post);
           break;
         }
         case 'copy':
