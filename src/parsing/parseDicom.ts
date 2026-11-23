@@ -15,7 +15,6 @@ const SPECIFIC_CHARACTER_SET_TAG = 'x00080005';
 const PIXEL_REPRESENTATION_TAG = 'x00280103';
 /** Cap on the inflated size of a Deflated Explicit VR Little Endian dataset, so a deflate bomb can't exhaust memory. */
 const MAX_INFLATED_BYTES = 512 * 1024 * 1024;
-const DEFLATED_TRANSFER_SYNTAX = '1.2.840.10008.1.2.1.99';
 /** Placeholder element written over the preamble of an inflated buffer; group 0001 is illegal in DICOM. */
 const HEADER_SKIP_GROUP = 0x0001;
 const HEADER_SKIP_ELEMENT = 0x0000;
@@ -35,20 +34,26 @@ export interface ParseResult {
 export function parseDicomFile(bytes: Uint8Array): ParseResult {
   let dataSet: DicomDataSet;
   let warning: string | undefined;
+  let inflated = false;
+  const inflater = (byteArray: Uint8Array, position: number): Uint8Array => {
+    inflated = true;
+    return boundedInflater(byteArray, position);
+  };
   try {
-    dataSet = dicomParser.parseDicom(bytes, { inflater: boundedInflater });
+    dataSet = dicomParser.parseDicom(bytes, { inflater });
+    removeHeaderSkipElement(dataSet, inflated);
   } catch (err) {
     // dicom-parser throws { exception, dataSet } when the dataset fails partway (e.g. a truncated file).
     const partial = isPartialParseError(err) ? err.dataSet : undefined;
+    if (partial) {
+      removeHeaderSkipElement(partial, inflated);
+    }
     if (!partial || Object.keys(partial.elements).length === 0) {
       return { error: `Unable to parse file as DICOM: ${errorMessage(err)}` };
     }
     dataSet = partial;
     mergeMetaHeader(bytes, dataSet);
     warning = `File could only be partially parsed; showing the elements read before the error: ${errorMessage(err)}`;
-  }
-  if (dataSet.elements.x00020010 && readTrimmedString(dataSet, 'x00020010') === DEFLATED_TRANSFER_SYNTAX) {
-    delete dataSet.elements[HEADER_SKIP_TAG];
   }
 
   try {
@@ -97,6 +102,13 @@ function boundedInflater(byteArray: Uint8Array, position: number): Uint8Array {
  * value spans the rest of the header, so the parser skips straight to the dataset. The preamble and
  * prefix bytes aren't needed: meta element values live after them and are left intact.
  */
+/** Drops the placeholder written by writeHeaderSkipElement; only present when the dataset was inflated. */
+function removeHeaderSkipElement(dataSet: DicomDataSet, inflated: boolean): void {
+  if (inflated) {
+    delete dataSet.elements[HEADER_SKIP_TAG];
+  }
+}
+
 function writeHeaderSkipElement(full: Uint8Array, position: number): void {
   const view = new DataView(full.buffer, full.byteOffset, full.byteLength);
   view.setUint16(0, HEADER_SKIP_GROUP, true);
