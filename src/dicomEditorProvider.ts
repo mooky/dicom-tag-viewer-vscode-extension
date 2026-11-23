@@ -28,8 +28,12 @@ interface RuntimeNotes {
    * editor's lifetime so a later save, which records the new hash, doesn't silently hide the warning.
    */
   webviews: Map<vscode.Webview, boolean | undefined>;
+  /** Set when the notes file exists but couldn't be loaded; saving would overwrite it. */
+  saveBlocked: boolean;
   /** Serializes saves across all editors sharing these notes. */
   saveQueue: Promise<void>;
+  /** Saves queued or running; a failed save only rolls back if no later save will retry the current state. */
+  pendingSaves: number;
 }
 
 function snapshotNotes(runtime: Pick<RuntimeNotes, 'notes' | 'highlights' | 'palette'>): string {
@@ -203,16 +207,26 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   }
 
   private async persistAndNotify(runtime: RuntimeNotes, contentHash: string): Promise<void> {
+    runtime.pendingSaves++;
     const saved = runtime.saveQueue.then(async () => {
       try {
+        if (runtime.saveBlocked) {
+          throw new Error('the existing notes file could not be loaded; reopen the file to retry');
+        }
         await this.notesStore.save(runtime.identity, contentHash, runtime.notes, runtime.highlights, runtime.palette);
         runtime.savedState = snapshotNotes(runtime);
         runtime.storedContentHash = contentHash;
       } catch (err) {
-        // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
-        Object.assign(runtime, JSON.parse(runtime.savedState));
-        const reason = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+        // A later queued save (possibly another editor's) writes the full current state, so only the last
+        // one rolls back and reports; rolling back earlier would discard edits made while this one ran.
+        if (runtime.pendingSaves === 1) {
+          // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
+          Object.assign(runtime, JSON.parse(runtime.savedState));
+          const reason = err instanceof Error ? err.message : String(err);
+          void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+        }
+      } finally {
+        runtime.pendingSaves--;
       }
       for (const [webview, contentDrift] of runtime.webviews) {
         const message: ExtToWebviewMessage = {
@@ -252,8 +266,10 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           palette: loaded.palette,
           savedState: snapshotNotes(loaded),
           storedContentHash: loaded.storedContentHash,
+          saveBlocked: loaded.saveBlocked ?? false,
           webviews,
           saveQueue: Promise.resolve(),
+          pendingSaves: 0,
         };
       });
       session = { webviews, runtime };
@@ -268,9 +284,18 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   private releaseNotes(identity: FileIdentity, webview: vscode.Webview): void {
     const key = this.notesSessionKey(identity);
     const session = this.notesSessions.get(key);
-    if (session?.webviews.delete(webview) && session.webviews.size === 0) {
-      this.notesSessions.delete(key);
+    if (!session?.webviews.delete(webview) || session.webviews.size > 0) {
+      return;
     }
+    // Keep the session until its queued saves land, so an editor reopened meanwhile reuses the in-memory
+    // notes instead of loading a stale file and later overwriting the closed editor's last edit.
+    void session.runtime
+      .then((runtime) => runtime.saveQueue)
+      .then(() => {
+        if (this.notesSessions.get(key) === session && session.webviews.size === 0) {
+          this.notesSessions.delete(key);
+        }
+      });
   }
 
   private async sendInitialState(

@@ -18,6 +18,10 @@ export function standardDictKey(tag: string): string | undefined {
   if (standardDataElements[key]) {
     return key;
   }
+  // Odd groups are private; repeating groups like 60xx only cover even groups (6000-601E).
+  if ((parseInt(key.substring(0, 4), 16) & 1) === 1) {
+    return undefined;
+  }
   return REPEATING_GROUP_KEYS.find(
     (pattern) => pattern.length === key.length && [...pattern].every((c, i) => c === 'x' || c === key[i]),
   );

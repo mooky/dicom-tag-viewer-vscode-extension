@@ -25,6 +25,8 @@ export interface LoadedNotes {
   storedContentHash?: string;
   /** Set when an existing notes file couldn't be loaded; the caller should surface it to the user. */
   warning?: string;
+  /** True when saving would overwrite notes that exist but couldn't be read; the caller must not save. */
+  saveBlocked?: boolean;
 }
 
 interface StoredNotesFile {
@@ -39,16 +41,34 @@ interface StoredNotesFile {
 function parseStoredNotes(text: string): StoredNotesFile {
   const stored: unknown = JSON.parse(text);
   const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const isString = (v: unknown) => typeof v === 'string';
+  const isNote = (v: unknown) => isObject(v) && isString((v as NoteData).color) && isString((v as NoteData).text);
+  const isHighlight = (v: unknown) => {
+    if (!isObject(v)) {
+      return false;
+    }
+    const h = v as Partial<HighlightData>;
+    return (
+      [h.id, h.name, h.color, h.parentNoteKey, h.firstChildNoteKey, h.lastChildNoteKey].every(isString) &&
+      // Older files predate the highlight note; collapsed is read as a truthy flag.
+      (h.note === undefined || isString(h.note)) &&
+      (h.collapsed === undefined || typeof h.collapsed === 'boolean')
+    );
+  };
   const s = stored as Partial<StoredNotesFile>;
   if (
     !isObject(stored) ||
-    (s.notes !== undefined && !isObject(s.notes)) ||
-    (s.highlights !== undefined && !Array.isArray(s.highlights)) ||
-    (s.palette !== undefined && !Array.isArray(s.palette))
+    (s.notes !== undefined && !(isObject(s.notes) && Object.values(s.notes).every(isNote))) ||
+    (s.highlights !== undefined && !(Array.isArray(s.highlights) && s.highlights.every(isHighlight))) ||
+    (s.palette !== undefined && !(Array.isArray(s.palette) && s.palette.every(isString)))
   ) {
     throw new Error('notes file has an unexpected structure');
   }
   return stored as StoredNotesFile;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 export function computeContentHash(bytes: Uint8Array): string {
@@ -70,8 +90,21 @@ export class NotesStore {
   async load(identity: FileIdentity, currentContentHash: string): Promise<LoadedNotes> {
     const uri = this.fileUriFor(identity);
     const empty: LoadedNotes = { notes: {}, highlights: [], palette: [...DEFAULT_PALETTE], contentDrift: false };
+    let bytes: Uint8Array;
     try {
-      const bytes = await vscode.workspace.fs.readFile(uri);
+      bytes = await vscode.workspace.fs.readFile(uri);
+    } catch (err) {
+      if ((err as { code?: unknown } | undefined)?.code === 'FileNotFound') {
+        return empty;
+      }
+      // Possibly transient (e.g. the file is locked by antivirus or sync); don't treat it as corrupt.
+      return {
+        ...empty,
+        saveBlocked: true,
+        warning: `Saved notes for this file couldn't be read (${errorMessage(err)}). Changes won't be saved until the file is reopened, so the existing notes aren't overwritten.`,
+      };
+    }
+    try {
       const stored = parseStoredNotes(Buffer.from(bytes).toString('utf8'));
       return {
         notes: stored.notes ?? {},
@@ -81,17 +114,18 @@ export class NotesStore {
         storedContentHash: stored.contentHash,
       };
     } catch (err) {
-      if ((err as { code?: unknown } | undefined)?.code === 'FileNotFound') {
-        return empty;
-      }
-      // Move the unreadable file aside so the next save doesn't overwrite the user's notes.
-      const reason = err instanceof Error ? err.message : String(err);
+      // Corrupt or malformed: move it aside so the next save doesn't overwrite the user's notes.
+      const reason = errorMessage(err);
       const backupUri = uri.with({ path: uri.path.replace(/\.json$/, `.corrupt-${Date.now()}.json`) });
       try {
         await vscode.workspace.fs.rename(uri, backupUri);
         return { ...empty, warning: `Saved notes for this file couldn't be loaded (${reason}); the file was moved to ${backupUri.fsPath}.` };
-      } catch {
-        return { ...empty, warning: `Saved notes for this file couldn't be loaded (${reason}); new edits will overwrite ${uri.fsPath}.` };
+      } catch (renameErr) {
+        return {
+          ...empty,
+          saveBlocked: true,
+          warning: `Saved notes for this file couldn't be loaded (${reason}) or moved aside (${errorMessage(renameErr)}). Changes won't be saved, so ${uri.fsPath} isn't overwritten.`,
+        };
       }
     }
   }
