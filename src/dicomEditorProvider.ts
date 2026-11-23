@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { randomUUID } from 'crypto';
 import { DicomDocument } from './dicomDocument';
 import { ExtToWebviewMessage, HighlightData, NoteData, WebviewToExtMessage } from './common/protocol';
+import { isValidWebviewMessage } from './messageValidation';
 import { FileIdentity, NotesStore, computeContentHash, resolveIdentity } from './notesStore';
 
 function getNonce(): string {
@@ -186,7 +187,11 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
 
     // Handle messages one at a time, so a later save can't finish before an earlier one and leave stale notes on disk.
     let messageQueue: Promise<void> = Promise.resolve();
-    panel.webview.onDidReceiveMessage((message: WebviewToExtMessage) => {
+    panel.webview.onDidReceiveMessage((message: unknown) => {
+      if (!isValidWebviewMessage(message)) {
+        console.warn('DICOM viewer: ignoring malformed webview message', message);
+        return;
+      }
       messageQueue = messageQueue
         .then(() => handleMessage(message))
         .catch((err) => console.error('DICOM viewer: failed to handle webview message', err));
