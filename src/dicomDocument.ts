@@ -9,19 +9,35 @@ export class DicomDocument implements vscode.CustomDocument {
     public readonly elements: TreeNode[] | undefined,
     public readonly error: string | undefined,
     public readonly sopInstanceUid: string | undefined,
+    /** Bytes that element offsets index into (the inflated stream for deflated files). */
+    private readonly parsedBytes: Uint8Array,
+    /** Non-fatal parse problem (e.g. truncated file) to surface to the user. */
+    public readonly warning: string | undefined,
   ) {}
 
   static async open(uri: vscode.Uri): Promise<DicomDocument> {
     const bytes = await vscode.workspace.fs.readFile(uri);
     const result = parseDicomFile(bytes);
-    return new DicomDocument(uri, bytes, result.elements, result.error, result.sopInstanceUid);
+    return new DicomDocument(
+      uri,
+      bytes,
+      result.elements,
+      result.error,
+      result.sopInstanceUid,
+      result.byteArray ?? bytes,
+      result.warning,
+    );
   }
 
+  /**
+   * Returns up to `length` bytes at `offset`, clamped to the end of the data (a truncated file's last
+   * element can claim more bytes than exist). Undefined if the offset itself is out of range.
+   */
   readBytes(offset: number, length: number): Uint8Array | undefined {
-    if (offset < 0 || length < 0 || offset + length > this.bytes.length) {
+    if (offset < 0 || length < 0 || offset >= this.parsedBytes.length) {
       return undefined;
     }
-    return this.bytes.subarray(offset, offset + length);
+    return this.parsedBytes.subarray(offset, Math.min(offset + length, this.parsedBytes.length));
   }
 
   dispose(): void {

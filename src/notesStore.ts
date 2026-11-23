@@ -21,6 +21,10 @@ export interface LoadedNotes {
   highlights: HighlightData[];
   palette: string[];
   contentDrift: boolean;
+  /** Content hash recorded with the stored notes, if a notes file existed. */
+  storedContentHash?: string;
+  /** Set when an existing notes file couldn't be loaded; the caller should surface it to the user. */
+  warning?: string;
 }
 
 interface StoredNotesFile {
@@ -30,6 +34,21 @@ interface StoredNotesFile {
   palette: string[];
   notes: Record<string, NoteData>;
   highlights?: HighlightData[];
+}
+
+function parseStoredNotes(text: string): StoredNotesFile {
+  const stored: unknown = JSON.parse(text);
+  const isObject = (v: unknown) => typeof v === 'object' && v !== null && !Array.isArray(v);
+  const s = stored as Partial<StoredNotesFile>;
+  if (
+    !isObject(stored) ||
+    (s.notes !== undefined && !isObject(s.notes)) ||
+    (s.highlights !== undefined && !Array.isArray(s.highlights)) ||
+    (s.palette !== undefined && !Array.isArray(s.palette))
+  ) {
+    throw new Error('notes file has an unexpected structure');
+  }
+  return stored as StoredNotesFile;
 }
 
 export function computeContentHash(bytes: Uint8Array): string {
@@ -49,17 +68,31 @@ export class NotesStore {
   }
 
   async load(identity: FileIdentity, currentContentHash: string): Promise<LoadedNotes> {
+    const uri = this.fileUriFor(identity);
+    const empty: LoadedNotes = { notes: {}, highlights: [], palette: [...DEFAULT_PALETTE], contentDrift: false };
     try {
-      const bytes = await vscode.workspace.fs.readFile(this.fileUriFor(identity));
-      const stored = JSON.parse(Buffer.from(bytes).toString('utf8')) as StoredNotesFile;
+      const bytes = await vscode.workspace.fs.readFile(uri);
+      const stored = parseStoredNotes(Buffer.from(bytes).toString('utf8'));
       return {
         notes: stored.notes ?? {},
         highlights: (stored.highlights ?? []).map((h) => ({ ...h, note: h.note ?? '' })),
         palette: stored.palette && stored.palette.length > 0 ? stored.palette : [...DEFAULT_PALETTE],
         contentDrift: stored.contentHash !== currentContentHash,
+        storedContentHash: stored.contentHash,
       };
-    } catch {
-      return { notes: {}, highlights: [], palette: [...DEFAULT_PALETTE], contentDrift: false };
+    } catch (err) {
+      if ((err as { code?: unknown } | undefined)?.code === 'FileNotFound') {
+        return empty;
+      }
+      // Move the unreadable file aside so the next save doesn't overwrite the user's notes.
+      const reason = err instanceof Error ? err.message : String(err);
+      const backupUri = uri.with({ path: uri.path.replace(/\.json$/, `.corrupt-${Date.now()}.json`) });
+      try {
+        await vscode.workspace.fs.rename(uri, backupUri);
+        return { ...empty, warning: `Saved notes for this file couldn't be loaded (${reason}); the file was moved to ${backupUri.fsPath}.` };
+      } catch {
+        return { ...empty, warning: `Saved notes for this file couldn't be loaded (${reason}); new edits will overwrite ${uri.fsPath}.` };
+      }
     }
   }
 

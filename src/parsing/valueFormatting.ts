@@ -31,6 +31,64 @@ const KNOWN_UIDS: Record<string, string> = {
   '1.2.840.10008.5.1.4.1.1.128': 'Positron Emission Tomography Image Storage',
 };
 
+/** Specific Character Set (0008,0005) defined terms mapped to WHATWG encoding labels. */
+const CHARSET_ENCODINGS: Record<string, string> = {
+  'ISO_IR 100': 'iso-8859-1',
+  'ISO_IR 101': 'iso-8859-2',
+  'ISO_IR 109': 'iso-8859-3',
+  'ISO_IR 110': 'iso-8859-4',
+  'ISO_IR 144': 'iso-8859-5',
+  'ISO_IR 127': 'iso-8859-6',
+  'ISO_IR 126': 'iso-8859-7',
+  'ISO_IR 138': 'iso-8859-8',
+  'ISO_IR 148': 'iso-8859-9',
+  'ISO_IR 203': 'iso-8859-15',
+  'ISO_IR 166': 'windows-874',
+  'ISO_IR 13': 'shift_jis',
+  'ISO_IR 192': 'utf-8',
+  GB18030: 'gb18030',
+  GBK: 'gbk',
+};
+
+/** VRs whose values use the Specific Character Set; all others are always in the default repertoire. */
+const CHARSET_TEXT_VRS = new Set(['SH', 'LO', 'ST', 'LT', 'PN', 'UC', 'UT']);
+
+/**
+ * Returns a decoder for a Specific Character Set value, or undefined for the default repertoire and for
+ * unsupported values. Multi-valued sets (ISO 2022 code extensions switched by escape sequences) aren't
+ * supported and fall back to the default byte-per-character decoding.
+ */
+export function createTextDecoder(specificCharacterSet: string | undefined): TextDecoder | undefined {
+  if (!specificCharacterSet) {
+    return undefined;
+  }
+  const terms = specificCharacterSet.split('\\').map((term) => term.trim());
+  if (terms.length !== 1) {
+    return undefined;
+  }
+  // A single-valued "ISO 2022 IR n" without escape sequences is equivalent to "ISO_IR n".
+  const encoding = CHARSET_ENCODINGS[terms[0].replace(/^ISO 2022 IR /, 'ISO_IR ')];
+  if (!encoding) {
+    return undefined;
+  }
+  try {
+    return new TextDecoder(encoding);
+  } catch {
+    return undefined;
+  }
+}
+
+/** Decodes an element's bytes like dataSet.string() (stop at NUL, trim), but with the given character set. */
+function decodeString(dataSet: DicomDataSet, tag: string, length: number, decoder: TextDecoder): string | undefined {
+  const element = dataSet.elements[tag];
+  if (!element) {
+    return undefined;
+  }
+  const text = decoder.decode(dataSet.byteArray.subarray(element.dataOffset, element.dataOffset + length));
+  const nul = text.indexOf('\0');
+  return (nul >= 0 ? text.substring(0, nul) : text).trim();
+}
+
 function formatDate(raw: string): string {
   const match = /^(\d{4})(\d{2})(\d{2})$/.exec(raw.trim());
   if (!match) {
@@ -118,7 +176,36 @@ function formatNumeric(vr: string, dataSet: DicomDataSet, tag: string, length: n
   return values.length > 0 ? values.join(', ') : undefined;
 }
 
-export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+function formatBinaryHex(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+  const element = dataSet.elements[tag];
+  if (!element) {
+    return undefined;
+  }
+  const bytes = dataSet.byteArray.subarray(element.dataOffset, element.dataOffset + length);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+}
+
+function formatAttributeTags(dataSet: DicomDataSet, tag: string, length: number): string | undefined {
+  const values: string[] = [];
+  for (let i = 0; i < Math.floor(length / 4); i++) {
+    const group = dataSet.uint16(tag, i * 2);
+    const element = dataSet.uint16(tag, i * 2 + 1);
+    if (group === undefined || element === undefined) {
+      break;
+    }
+    const hex = (n: number) => n.toString(16).padStart(4, '0').toUpperCase();
+    values.push(`(${hex(group)},${hex(element)})`);
+  }
+  return values.length > 0 ? values.join(', ') : undefined;
+}
+
+export function formatValue(
+  vr: string,
+  dataSet: DicomDataSet,
+  tag: string,
+  length: number,
+  decoder?: TextDecoder,
+): string | undefined {
   if (length === 0) {
     return '';
   }
@@ -127,7 +214,16 @@ export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, leng
     return formatNumeric(vr, dataSet, tag, length);
   }
 
-  const raw = dataSet.string(tag);
+  if (isBinaryVR(vr)) {
+    return formatBinaryHex(dataSet, tag, length);
+  }
+
+  if (vr === 'AT') {
+    return formatAttributeTags(dataSet, tag, length);
+  }
+
+  const raw =
+    decoder && CHARSET_TEXT_VRS.has(vr) ? decodeString(dataSet, tag, length, decoder) : dataSet.string(tag);
   if (raw === undefined) {
     return undefined;
   }
@@ -143,6 +239,12 @@ export function formatValue(vr: string, dataSet: DicomDataSet, tag: string, leng
       return formatPersonName(raw);
     case 'UI':
       return formatUid(raw);
+    // Single-valued text VRs: a backslash is literal text, not a value delimiter (PS3.5 6.2).
+    case 'LT':
+    case 'ST':
+    case 'UT':
+    case 'UR':
+      return raw;
     default:
       return formatGenericString(raw);
   }

@@ -26,5 +26,11 @@ declare module 'dicom-parser' {
     double(tag: string, index?: number): number | undefined;
   }
 
-  export function parseDicom(byteArray: Uint8Array): DicomDataSet;
+  export interface ParseDicomOptions {
+    inflater?: (byteArray: Uint8Array, position: number) => Uint8Array;
+  }
+
+  export function readPart10Header(byteArray: Uint8Array): DicomDataSet;
+
+  export function parseDicom(byteArray: Uint8Array, options?: ParseDicomOptions): DicomDataSet;
 }

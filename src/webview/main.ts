@@ -3,6 +3,8 @@ import { ExtToWebviewMessage, HighlightData, NoteData, TreeNode, WebviewToExtMes
 const ROW_HEIGHT = 22;
 const GUTTER_TICK_LIMIT = 3;
 const FALLBACK_COLOR = '#e06c75';
+/** Cap on bytes requested for the hex view; dumping full Pixel Data freezes the webview. */
+const HEX_MAX_BYTES = 64 * 1024;
 
 const vscode = acquireVsCodeApi();
 
@@ -50,7 +52,7 @@ interface ResolvedHighlight {
 }
 
 type Row =
-  | { kind: 'tag'; node: TreeNode; path: string; depth: number; hasChildren: boolean }
+  | { kind: 'tag'; node: TreeNode; path: string; depth: number; hasChildren: boolean; isOpen: boolean }
   | { kind: 'highlightHeader'; depth: number; highlight: ResolvedHighlight }
   | { kind: 'spacer'; depth: number };
 
@@ -302,7 +304,9 @@ function computeSelectionRange(anchorPath: string, targetPath: string): RawRange
     // Prefer clamping to the anchor-level sibling the target is actually nested under, rather than
     // blowing past it to the first/last sibling — e.g. shift-clicking deep inside a later sequence
     // should stop at that sequence, not run all the way to the end of the document.
-    const targetSiblingIndex = childIndexUnderParent(targetPath, anchorParent);
+    const anchorDot = anchorPath.lastIndexOf('.');
+    const anchorParentPath = anchorDot === -1 ? '' : anchorPath.slice(0, anchorDot);
+    const targetSiblingIndex = childIndexUnderParent(targetPath, anchorParentPath);
     if (targetSiblingIndex !== undefined) {
       start = Math.min(anchorIndex, targetSiblingIndex);
       end = Math.max(anchorIndex, targetSiblingIndex);
@@ -484,8 +488,12 @@ function flattenLevel(nodes: TreeNode[], parentPath: string, depth: number, incl
     }
 
     const hasChildren = !!node.items && node.items.length > 0;
-    out.push({ kind: 'tag', node, path, depth, hasChildren });
-    if (hasChildren && expanded.has(path)) {
+    // While searching, reveal nested matches even under collapsed ancestors (without touching
+    // `expanded`, so clearing the search restores the prior expand/collapse state).
+    const isOpen =
+      hasChildren && (included ? node.items!.some((_, i) => included.has(`${path}.${i}`)) : expanded.has(path));
+    out.push({ kind: 'tag', node, path, depth, hasChildren, isOpen });
+    if (isOpen) {
       flattenLevel(node.items!, path, depth + 1, included, out);
     }
 
@@ -517,7 +525,7 @@ function renderGutter(row: TagRow): HTMLElement {
     gutter.appendChild(mark);
   }
 
-  if (row.hasChildren && !expanded.has(row.path)) {
+  if (row.hasChildren && !row.isOpen) {
     const colors = descendantColorsByNoteKey.get(row.node.noteKey) ?? [];
     if (colors.length > 0) {
       colors.slice(0, GUTTER_TICK_LIMIT).forEach((color) => {
@@ -622,6 +630,10 @@ function showTreeContextMenu(event: MouseEvent, row: TagRow): void {
   }
 
   document.body.appendChild(menu);
+  // Keep the menu inside the viewport when opened near the right/bottom edge.
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(0, Math.min(event.clientX, window.innerWidth - rect.width))}px`;
+  menu.style.top = `${Math.max(0, Math.min(event.clientY, window.innerHeight - rect.height))}px`;
   setTimeout(() => document.addEventListener('click', closeContextMenu), 0);
 }
 
@@ -661,7 +673,7 @@ function renderTagRow(row: TagRow): HTMLElement {
   if (row.hasChildren) {
     const caret = document.createElement('span');
     caret.className = 'caret';
-    caret.textContent = expanded.has(row.path) ? '▾' : '▸';
+    caret.textContent = row.isOpen ? '▾' : '▸';
     caret.addEventListener('click', (event) => {
       event.stopPropagation();
       if (searchQuery.trim().length === 0) {
@@ -856,6 +868,8 @@ function renderSwatchPicker(initialColor: string, onSelect: (color: string) => v
     customInput.addEventListener('change', () => {
       selectedColor = customInput.value;
       if (!palette.includes(selectedColor)) {
+        // Show the new swatch immediately; the extension's palette-only update won't re-render this form.
+        palette.push(selectedColor);
         postMessage({ type: 'addPaletteColor', color: selectedColor });
       }
       onSelect(selectedColor);
@@ -1113,23 +1127,60 @@ function renderDetail(): void {
   }
 
   if (node.binary) {
-    const cached = hexCache.get(node.binary.id);
-    if (cached) {
-      const pre = document.createElement('pre');
-      pre.className = 'hex-view';
-      pre.textContent = cached;
-      detail.appendChild(pre);
-    } else {
-      const binary = node.binary;
-      detail.appendChild(
-        makeButton('Load Hex', () => {
-          postMessage({ type: 'requestHex', id: binary.id, offset: binary.offset, length: node.length });
-        }),
-      );
-    }
+    const hexSection = document.createElement('div');
+    hexSection.className = 'hex-section';
+    hexSection.dataset.hexId = node.binary.id;
+    fillHexSection(hexSection, node);
+    detail.appendChild(hexSection);
   }
 
   renderNoteEditor(node, detail);
+}
+
+function fillHexSection(section: HTMLElement, node: TreeNode): void {
+  section.innerHTML = '';
+  const binary = node.binary!;
+  const cached = hexCache.get(binary.id);
+  if (cached) {
+    if (node.length > HEX_MAX_BYTES) {
+      const notice = document.createElement('div');
+      notice.className = 'detail-empty';
+      notice.textContent = `Showing first ${HEX_MAX_BYTES.toLocaleString()} of ${node.length.toLocaleString()} bytes.`;
+      section.appendChild(notice);
+    }
+    const pre = document.createElement('pre');
+    pre.className = 'hex-view';
+    pre.textContent = cached;
+    section.appendChild(pre);
+  } else {
+    section.appendChild(
+      makeButton('Load Hex', () => {
+        postMessage({
+          type: 'requestHex',
+          id: binary.id,
+          offset: binary.offset,
+          length: Math.min(node.length, HEX_MAX_BYTES),
+        });
+      }),
+    );
+  }
+}
+
+/** Swaps in a just-loaded hex dump without rebuilding the detail pane (which would wipe unsaved note text). */
+function refreshHexSection(id: string): void {
+  if (!elements || !selectedPath) {
+    return;
+  }
+  const node = findNodeByPath(elements, selectedPath);
+  if (!node?.binary || node.binary.id !== id) {
+    return;
+  }
+  const section = Array.from(document.querySelectorAll<HTMLElement>('#detail .hex-section')).find(
+    (el) => el.dataset.hexId === id,
+  );
+  if (section) {
+    fillHexSection(section, node);
+  }
 }
 
 function renderDriftBanner(): void {
@@ -1174,9 +1225,28 @@ function renderNotesList(): void {
     label.textContent = excerpt ? `${tagLabel} — ${truncate(excerpt, 60)}` : tagLabel;
     item.appendChild(label);
 
-    item.addEventListener('click', () => jumpToNote(noteKey));
+    if (node) {
+      item.addEventListener('click', () => jumpToNote(noteKey));
+    } else {
+      markOrphan(item, 'This tag is not in the current file.', () => postMessage({ type: 'clearNote', noteKey }));
+    }
     container.appendChild(item);
   });
+}
+
+/** Orphans (saved against a tag/range no longer in this file) can't be jumped to, so offer deletion instead. */
+function markOrphan(item: HTMLElement, reason: string, onDelete: () => void): void {
+  item.classList.add('orphan');
+  item.title = reason;
+  const deleteBtn = document.createElement('span');
+  deleteBtn.className = 'notes-list-delete';
+  deleteBtn.textContent = '✕';
+  deleteBtn.title = 'Delete';
+  deleteBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onDelete();
+  });
+  item.appendChild(deleteBtn);
 }
 
 function renderHighlightsList(): void {
@@ -1205,7 +1275,13 @@ function renderHighlightsList(): void {
     label.textContent = h.name;
     item.appendChild(label);
 
-    item.addEventListener('click', () => jumpToHighlight(h.id));
+    if (resolvedHighlights.some((rh) => rh.data.id === h.id)) {
+      item.addEventListener('click', () => jumpToHighlight(h.id));
+    } else {
+      markOrphan(item, 'This highlight’s tags are not in the current file.', () =>
+        postMessage({ type: 'deleteHighlight', id: h.id }),
+      );
+    }
     container.appendChild(item);
   });
 }
@@ -1227,6 +1303,7 @@ function jumpToNote(noteKey: string): void {
   }
   selectedPath = targetPath;
   selectedHighlightId = null;
+  pendingHighlightCreation = null;
   recomputeRowsAndRender();
   renderDetail();
 
@@ -1250,6 +1327,7 @@ function jumpToHighlight(id: string): void {
   }
   selectedHighlightId = id;
   selectedPath = null;
+  pendingHighlightCreation = null;
   recomputeRowsAndRender();
   renderDetail();
 
@@ -1342,22 +1420,30 @@ window.addEventListener('message', (event: MessageEvent<ExtToWebviewMessage>) =>
       elements = null;
       renderApp();
       break;
-    case 'notesUpdate':
+    case 'notesUpdate': {
+      // A palette-only update (e.g. after picking a custom color) must not rebuild the detail pane,
+      // or it wipes whatever the user is typing in an open note/highlight form.
+      const paletteOnly =
+        JSON.stringify(message.notes.notes) === JSON.stringify(notes) &&
+        JSON.stringify(message.notes.highlights) === JSON.stringify(highlights);
       notes = message.notes.notes;
       highlights = message.notes.highlights;
       palette = message.notes.palette;
       contentDrift = message.notes.contentDrift;
       recomputeNoteIndexes();
       recomputeRowsAndRender();
-      renderDetail();
+      if (!paletteOnly) {
+        renderDetail();
+      }
       renderDriftBanner();
       renderNotesList();
       renderHighlightsList();
       break;
+    }
     case 'hexChunk': {
       const bytes = base64ToBytes(message.bytes);
       hexCache.set(message.id, formatHexDump(bytes, message.offset));
-      renderDetail();
+      refreshHexSection(message.id);
       break;
     }
   }
