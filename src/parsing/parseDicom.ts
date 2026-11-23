@@ -229,7 +229,9 @@ function buildNode(
   }
 
   const isPixelData = tag.toLowerCase() === PIXEL_DATA_TAG;
-  const treatAsBinary = isBinaryVR(rawVr) && (isPixelData || element.length > INLINE_BINARY_MAX_LENGTH);
+  // An empty element has no bytes to load; give it an empty value rather than a Load Hex handle.
+  const treatAsBinary =
+    isBinaryVR(rawVr) && element.length > 0 && (isPixelData || element.length > INLINE_BINARY_MAX_LENGTH);
 
   if (treatAsBinary) {
     return {
