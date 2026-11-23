@@ -712,6 +712,10 @@ function renderTagRow(row: TagRow): HTMLElement {
       selectedPath = row.path;
       selectedHighlightId = null;
       pendingHighlightCreation = null;
+      if (searchQuery.trim().length > 0) {
+        // The row may be visible only because search revealed it; keep it visible once search is cleared.
+        expandAncestorsOfPath(row.path);
+      }
       renderDetail();
     }
     renderVisibleSlice();
