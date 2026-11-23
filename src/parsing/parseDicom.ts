@@ -13,6 +13,11 @@ const SOP_INSTANCE_UID_TAG = 'x00080018';
 const SOP_CLASS_UID_TAG = 'x00080016';
 /** Cap on the inflated size of a Deflated Explicit VR Little Endian dataset, so a deflate bomb can't exhaust memory. */
 const MAX_INFLATED_BYTES = 512 * 1024 * 1024;
+const DEFLATED_TRANSFER_SYNTAX = '1.2.840.10008.1.2.1.99';
+/** Placeholder element written over the preamble of an inflated buffer; group 0001 is illegal in DICOM. */
+const HEADER_SKIP_GROUP = 0x0001;
+const HEADER_SKIP_ELEMENT = 0x0000;
+const HEADER_SKIP_TAG = 'x00010000';
 
 export interface ParseResult {
   elements?: TreeNode[];
@@ -39,6 +44,9 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
     dataSet = partial;
     mergeMetaHeader(bytes, dataSet);
     warning = `File could only be partially parsed; showing the elements read before the error: ${errorMessage(err)}`;
+  }
+  if (dataSet.elements.x00020010 && readTrimmedString(dataSet, 'x00020010') === DEFLATED_TRANSFER_SYNTAX) {
+    delete dataSet.elements[HEADER_SKIP_TAG];
   }
 
   try {
@@ -74,7 +82,25 @@ function boundedInflater(byteArray: Uint8Array, position: number): Uint8Array {
   const full = new Uint8Array(position + inflated.length);
   full.set(byteArray.subarray(0, position), 0);
   full.set(inflated, position);
+  writeHeaderSkipElement(full, position);
   return full;
+}
+
+/**
+ * dicom-parser parses a custom inflater's result from offset 0 rather than from the end of the header,
+ * so the preamble, "DICM" prefix and meta group would be parsed again as dataset elements (junk tags
+ * like (0000,0000) and (4944,4D43)). Overwrite the preamble with one explicit-VR OB element whose
+ * value spans the rest of the header, so the parser skips straight to the dataset. The preamble and
+ * prefix bytes aren't needed: meta element values live after them and are left intact.
+ */
+function writeHeaderSkipElement(full: Uint8Array, position: number): void {
+  const view = new DataView(full.buffer, full.byteOffset, full.byteLength);
+  view.setUint16(0, HEADER_SKIP_GROUP, true);
+  view.setUint16(2, HEADER_SKIP_ELEMENT, true);
+  full[4] = 0x4f; // 'O'
+  full[5] = 0x42; // 'B'
+  view.setUint16(6, 0, true);
+  view.setUint32(8, position - 12, true);
 }
 
 function readTrimmedString(dataSet: DicomDataSet, tag: string): string | undefined {
