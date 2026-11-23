@@ -32,6 +32,8 @@ interface RuntimeNotes {
   saveBlocked: boolean;
   /** Serializes saves across all editors sharing these notes. */
   saveQueue: Promise<void>;
+  /** Saves queued or running; a failed save only rolls back if no later save will retry the current state. */
+  pendingSaves: number;
 }
 
 function snapshotNotes(runtime: Pick<RuntimeNotes, 'notes' | 'highlights' | 'palette'>): string {
@@ -205,6 +207,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
   }
 
   private async persistAndNotify(runtime: RuntimeNotes, contentHash: string): Promise<void> {
+    runtime.pendingSaves++;
     const saved = runtime.saveQueue.then(async () => {
       try {
         if (runtime.saveBlocked) {
@@ -214,10 +217,16 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
         runtime.savedState = snapshotNotes(runtime);
         runtime.storedContentHash = contentHash;
       } catch (err) {
-        // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
-        Object.assign(runtime, JSON.parse(runtime.savedState));
-        const reason = err instanceof Error ? err.message : String(err);
-        void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+        // A later queued save (possibly another editor's) writes the full current state, so only the last
+        // one rolls back and reports; rolling back earlier would discard edits made while this one ran.
+        if (runtime.pendingSaves === 1) {
+          // Roll back to the last saved state so the UI doesn't show edits that aren't on disk.
+          Object.assign(runtime, JSON.parse(runtime.savedState));
+          const reason = err instanceof Error ? err.message : String(err);
+          void vscode.window.showErrorMessage(`Failed to save DICOM notes: ${reason}`);
+        }
+      } finally {
+        runtime.pendingSaves--;
       }
       for (const [webview, contentDrift] of runtime.webviews) {
         const message: ExtToWebviewMessage = {
@@ -260,6 +269,7 @@ export class DicomEditorProvider implements vscode.CustomReadonlyEditorProvider<
           saveBlocked: loaded.saveBlocked ?? false,
           webviews,
           saveQueue: Promise.resolve(),
+          pendingSaves: 0,
         };
       });
       session = { webviews, runtime };
