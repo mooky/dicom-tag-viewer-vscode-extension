@@ -474,7 +474,10 @@ function flattenLevel(nodes: TreeNode[], parentPath: string, depth: number, incl
       startingHere.forEach((rh) => out.push({ kind: 'highlightHeader', depth, highlight: rh }));
     }
 
-    const collapsedCovering = levelHighlights.find((rh) => rh.data.collapsed && index >= rh.startIndex && index <= rh.endIndex);
+    // While searching, collapsed highlights don't hide matches (consistent with collapsed tags).
+    const collapsedCovering = included
+      ? undefined
+      : levelHighlights.find((rh) => rh.data.collapsed && index >= rh.startIndex && index <= rh.endIndex);
     if (collapsedCovering) {
       prevWasHighlightEnd = index === collapsedCovering.endIndex;
       continue;
@@ -746,10 +749,15 @@ function renderHighlightHeaderRow(row: Extract<Row, { kind: 'highlightHeader' }>
 
   const collapseToggle = document.createElement('span');
   collapseToggle.className = 'caret';
-  collapseToggle.textContent = rh.data.collapsed ? '▸' : '▾';
+  // During search members are always shown, so present the header as expanded and (like tag carets) inert.
+  const searching = searchQuery.trim().length > 0;
+  const shownCollapsed = rh.data.collapsed && !searching;
+  collapseToggle.textContent = shownCollapsed ? '▸' : '▾';
   collapseToggle.addEventListener('click', (event) => {
     event.stopPropagation();
-    postMessage({ type: 'updateHighlight', id: rh.data.id, collapsed: !rh.data.collapsed });
+    if (!searching) {
+      postMessage({ type: 'updateHighlight', id: rh.data.id, collapsed: !rh.data.collapsed });
+    }
   });
   div.appendChild(collapseToggle);
 
@@ -761,7 +769,7 @@ function renderHighlightHeaderRow(row: Extract<Row, { kind: 'highlightHeader' }>
   const count = rh.endIndex - rh.startIndex + 1;
   const label = document.createElement('span');
   label.className = 'highlight-header-label';
-  label.textContent = rh.data.collapsed ? `${rh.data.name} (${count} tag${count === 1 ? '' : 's'})` : rh.data.name;
+  label.textContent = shownCollapsed ? `${rh.data.name} (${count} tag${count === 1 ? '' : 's'})` : rh.data.name;
   if (rh.data.note) {
     label.title = rh.data.note;
   }
