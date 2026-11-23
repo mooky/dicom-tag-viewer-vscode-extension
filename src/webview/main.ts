@@ -1221,9 +1221,28 @@ function renderNotesList(): void {
     label.textContent = excerpt ? `${tagLabel} — ${truncate(excerpt, 60)}` : tagLabel;
     item.appendChild(label);
 
-    item.addEventListener('click', () => jumpToNote(noteKey));
+    if (node) {
+      item.addEventListener('click', () => jumpToNote(noteKey));
+    } else {
+      markOrphan(item, 'This tag is not in the current file.', () => postMessage({ type: 'clearNote', noteKey }));
+    }
     container.appendChild(item);
   });
+}
+
+/** Orphans (saved against a tag/range no longer in this file) can't be jumped to, so offer deletion instead. */
+function markOrphan(item: HTMLElement, reason: string, onDelete: () => void): void {
+  item.classList.add('orphan');
+  item.title = reason;
+  const deleteBtn = document.createElement('span');
+  deleteBtn.className = 'notes-list-delete';
+  deleteBtn.textContent = '✕';
+  deleteBtn.title = 'Delete';
+  deleteBtn.addEventListener('click', (event) => {
+    event.stopPropagation();
+    onDelete();
+  });
+  item.appendChild(deleteBtn);
 }
 
 function renderHighlightsList(): void {
@@ -1252,7 +1271,13 @@ function renderHighlightsList(): void {
     label.textContent = h.name;
     item.appendChild(label);
 
-    item.addEventListener('click', () => jumpToHighlight(h.id));
+    if (resolvedHighlights.some((rh) => rh.data.id === h.id)) {
+      item.addEventListener('click', () => jumpToHighlight(h.id));
+    } else {
+      markOrphan(item, 'This highlight’s tags are not in the current file.', () =>
+        postMessage({ type: 'deleteHighlight', id: h.id }),
+      );
+    }
     container.appendChild(item);
   });
 }
