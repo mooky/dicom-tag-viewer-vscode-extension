@@ -4,13 +4,14 @@ import type { DicomDataSet } from 'dicom-parser';
 import { TreeNode } from '../common/protocol';
 import { formatTagDisplay, isStandardTag, lookupTag, standardDictKey, toDictKey } from './dictionary';
 import { resolveReferenceUrl } from './dicomStandardReference';
-import { formatValue, isBinaryVR } from './valueFormatting';
+import { createTextDecoder, formatValue, isBinaryVR } from './valueFormatting';
 
 const INLINE_BINARY_MAX_LENGTH = 64;
 const PIXEL_DATA_TAG = 'x7fe00010';
 const ITEM_TAG_DISPLAY = '(FFFE,E000)';
 const SOP_INSTANCE_UID_TAG = 'x00080018';
 const SOP_CLASS_UID_TAG = 'x00080016';
+const SPECIFIC_CHARACTER_SET_TAG = 'x00080005';
 /** Cap on the inflated size of a Deflated Explicit VR Little Endian dataset, so a deflate bomb can't exhaust memory. */
 const MAX_INFLATED_BYTES = 512 * 1024 * 1024;
 const DEFLATED_TRANSFER_SYNTAX = '1.2.840.10008.1.2.1.99';
@@ -52,7 +53,8 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
   try {
     const binaryIdState = { counter: 0 };
     const sopClassUid = readTrimmedString(dataSet, SOP_CLASS_UID_TAG);
-    const elements = buildNodes(dataSet, binaryIdState, '', [], sopClassUid);
+    const decoder = createTextDecoder(dataSet.string(SPECIFIC_CHARACTER_SET_TAG));
+    const elements = buildNodes(dataSet, binaryIdState, '', [], sopClassUid, decoder);
     return {
       elements,
       sopInstanceUid: readTrimmedString(dataSet, SOP_INSTANCE_UID_TAG),
@@ -143,9 +145,10 @@ function buildNodes(
   parentChain: string,
   hexChainPrefix: string[],
   sopClassUid: string | undefined,
+  decoder: TextDecoder | undefined,
 ): TreeNode[] {
   const tags = Object.keys(dataSet.elements).sort();
-  return tags.map((tag) => buildNode(dataSet, tag, binaryIdState, parentChain, hexChainPrefix, sopClassUid));
+  return tags.map((tag) => buildNode(dataSet, tag, binaryIdState, parentChain, hexChainPrefix, sopClassUid, decoder));
 }
 
 function buildNode(
@@ -155,6 +158,7 @@ function buildNode(
   parentChain: string,
   hexChainPrefix: string[],
   sopClassUid: string | undefined,
+  decoder: TextDecoder | undefined,
 ): TreeNode {
   const element = dataSet.elements[tag];
   const dictEntry = lookupTag(tag);
@@ -169,12 +173,16 @@ function buildNode(
   if (rawVr === 'SQ') {
     const items: TreeNode[] = (element.items ?? []).map((item, index) => {
       const itemKey = `${noteKey}>Item ${index}`;
+      // An item may declare its own Specific Character Set; otherwise it inherits its parent's.
+      const itemDecoder = item.dataSet.elements[SPECIFIC_CHARACTER_SET_TAG]
+        ? createTextDecoder(item.dataSet.string(SPECIFIC_CHARACTER_SET_TAG))
+        : decoder;
       return {
         tag: ITEM_TAG_DISPLAY,
         name: `Item ${index}`,
         vr: '',
         length: item.length,
-        items: buildNodes(item.dataSet, binaryIdState, itemKey, hexChain, sopClassUid),
+        items: buildNodes(item.dataSet, binaryIdState, itemKey, hexChain, sopClassUid, itemDecoder),
         noteKey: itemKey,
       };
     });
@@ -196,6 +204,6 @@ function buildNode(
     };
   }
 
-  const value = formatValue(rawVr, dataSet, tag, element.length);
+  const value = formatValue(rawVr, dataSet, tag, element.length, decoder);
   return { tag: displayTag, name, vr: rawVr, length: element.length, value, noteKey, referenceUrl };
 }
