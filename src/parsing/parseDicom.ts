@@ -12,6 +12,7 @@ const ITEM_TAG_DISPLAY = '(FFFE,E000)';
 const SOP_INSTANCE_UID_TAG = 'x00080018';
 const SOP_CLASS_UID_TAG = 'x00080016';
 const SPECIFIC_CHARACTER_SET_TAG = 'x00080005';
+const PIXEL_REPRESENTATION_TAG = 'x00280103';
 /** Cap on the inflated size of a Deflated Explicit VR Little Endian dataset, so a deflate bomb can't exhaust memory. */
 const MAX_INFLATED_BYTES = 512 * 1024 * 1024;
 const DEFLATED_TRANSFER_SYNTAX = '1.2.840.10008.1.2.1.99';
@@ -54,7 +55,8 @@ export function parseDicomFile(bytes: Uint8Array): ParseResult {
     const binaryIdState = { counter: 0 };
     const sopClassUid = readTrimmedString(dataSet, SOP_CLASS_UID_TAG);
     const decoder = createTextDecoder(dataSet.string(SPECIFIC_CHARACTER_SET_TAG));
-    const elements = buildNodes(dataSet, binaryIdState, '', [], sopClassUid, decoder);
+    const pixelRepresentation = dataSet.uint16(PIXEL_REPRESENTATION_TAG);
+    const elements = buildNodes(dataSet, binaryIdState, '', [], sopClassUid, decoder, pixelRepresentation);
     return {
       elements,
       sopInstanceUid: readTrimmedString(dataSet, SOP_INSTANCE_UID_TAG),
@@ -105,6 +107,22 @@ function writeHeaderSkipElement(full: Uint8Array, position: number): void {
   view.setUint32(8, position - 12, true);
 }
 
+/**
+ * Picks a VR for an implicit-VR element from its dictionary entry. For "US|SS" tags (pixel value ranges,
+ * LUT descriptors) the choice follows Pixel Representation (0028,0103): 1 means signed. Other multi-VR
+ * entries take the first option.
+ */
+function implicitVr(dictVr: string | undefined, pixelRepresentation: number | undefined): string {
+  if (!dictVr) {
+    return 'UN';
+  }
+  const options = dictVr.split('|');
+  if (pixelRepresentation === 1 && options.includes('US') && options.includes('SS')) {
+    return 'SS';
+  }
+  return options[0];
+}
+
 function readTrimmedString(dataSet: DicomDataSet, tag: string): string | undefined {
   const raw = dataSet.string(tag);
   if (raw === undefined) {
@@ -146,9 +164,12 @@ function buildNodes(
   hexChainPrefix: string[],
   sopClassUid: string | undefined,
   decoder: TextDecoder | undefined,
+  pixelRepresentation: number | undefined,
 ): TreeNode[] {
   const tags = Object.keys(dataSet.elements).sort();
-  return tags.map((tag) => buildNode(dataSet, tag, binaryIdState, parentChain, hexChainPrefix, sopClassUid, decoder));
+  return tags.map((tag) =>
+    buildNode(dataSet, tag, binaryIdState, parentChain, hexChainPrefix, sopClassUid, decoder, pixelRepresentation),
+  );
 }
 
 function buildNode(
@@ -159,10 +180,11 @@ function buildNode(
   hexChainPrefix: string[],
   sopClassUid: string | undefined,
   decoder: TextDecoder | undefined,
+  pixelRepresentation: number | undefined,
 ): TreeNode {
   const element = dataSet.elements[tag];
   const dictEntry = lookupTag(tag);
-  const rawVr = element.vr ?? dictEntry.vr?.split('|')[0] ?? 'UN';
+  const rawVr = element.vr ?? implicitVr(dictEntry.vr, pixelRepresentation);
   const displayTag = formatTagDisplay(tag);
   const name = dictEntry.name;
   const noteKey = parentChain ? `${parentChain}>${displayTag}` : displayTag;
@@ -177,12 +199,21 @@ function buildNode(
       const itemDecoder = item.dataSet.elements[SPECIFIC_CHARACTER_SET_TAG]
         ? createTextDecoder(item.dataSet.string(SPECIFIC_CHARACTER_SET_TAG))
         : decoder;
+      const itemPixelRepresentation = item.dataSet.uint16(PIXEL_REPRESENTATION_TAG) ?? pixelRepresentation;
       return {
         tag: ITEM_TAG_DISPLAY,
         name: `Item ${index}`,
         vr: '',
         length: item.length,
-        items: buildNodes(item.dataSet, binaryIdState, itemKey, hexChain, sopClassUid, itemDecoder),
+        items: buildNodes(
+          item.dataSet,
+          binaryIdState,
+          itemKey,
+          hexChain,
+          sopClassUid,
+          itemDecoder,
+          itemPixelRepresentation,
+        ),
         noteKey: itemKey,
       };
     });
